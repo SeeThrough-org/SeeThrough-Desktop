@@ -1,12 +1,13 @@
 import time
 import cv2
-
 import numpy as np
 from PyQt5.QtCore import (Qt, QSize)
 from PyQt5.QtGui import (QIcon, QPixmap, QImage)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, QVBoxLayout, QStackedWidget, QSizePolicy,
-                             QGridLayout, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog)
+                             QGridLayout, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox)
 from dehazing.dehazing import dehazing
+from dehazing.utils import CameraStream
+import configparser
 import os
 os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r'path/to/qt/plugins/platforms'
 
@@ -194,7 +195,94 @@ class GUI(QMainWindow):
         options_popup.setWindowTitle("Camera Options")
         options_popup.setWindowFlags(
             options_popup.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        options_popup.exec_()
+        options_popup.setFixedWidth(320)
+        options_popup.setFixedHeight(240)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)  # Add padding to the dialog
+
+        # Add a title label
+        title_label = QLabel("<h2>Camera Options</h2>")
+        layout.addWidget(title_label)
+
+        # Create labels and input fields for Camera Name and IP Address
+        camera_name_label = QLabel("Camera Name:")
+        layout.addWidget(camera_name_label)
+
+        camera_name = QLineEdit()
+        camera_name.setPlaceholderText("Enter camera name")
+        layout.addWidget(camera_name)
+
+        input_label = QLabel("IP Address:")
+        layout.addWidget(input_label)
+
+        input_field = QLineEdit()
+        input_field.setPlaceholderText("Enter IP address")
+        layout.addWidget(input_field)
+
+        # Add a button box with custom styling
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            options_popup)
+        buttons.accepted.connect(options_popup.accept)
+        buttons.rejected.connect(options_popup.reject)
+        layout.addWidget(buttons)
+
+        # Apply custom styling using CSS
+        options_popup.setStyleSheet("""
+            QDialog {
+                background-color: #F5F5F5;
+            }
+            QLabel {
+                font-size: 18px;
+            }
+            QLineEdit {
+                padding: 8px;
+                font-size: 16px;
+                border: 2px solid #000;
+                border-radius: 4px;
+            }
+            QPushButton {
+                padding: 8px 16px;
+                font-size: 16px;
+                background-color: #007ACC;
+                color: white;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #005FAA;
+            }
+        """)
+
+        options_popup.setLayout(layout)
+
+        # Load settings with error handling
+        try:
+            config = configparser.ConfigParser()
+            config.read('settings.cfg')
+            if 'DEFAULT' in config and 'input' in config['DEFAULT']:
+                input_field.setText(config['DEFAULT']['input'])
+            if 'DEFAULT' in config and 'camera_name' in config['DEFAULT']:
+                camera_name.setText(config['DEFAULT']['camera_name'])
+        except (FileNotFoundError, configparser.Error) as e:
+            print(f"Error loading settings: {e}")
+
+        result = options_popup.exec_()
+
+        if result == QDialog.Accepted:
+            # Save settings with error handling
+            try:
+                config = configparser.ConfigParser()
+                config.read('settings.cfg')
+                if 'DEFAULT' not in config:
+                    config['DEFAULT'] = {}
+                config['DEFAULT']['input'] = input_field.text()
+                config['DEFAULT']['camera_name'] = camera_name.text()
+                with open('settings.cfg', 'w') as configfile:
+                    config.write(configfile)
+            except (FileNotFoundError, configparser.Error) as e:
+                print(f"Error saving settings: {e}")
 
     def static_dehazing_frames(self):
         # Create the widget
@@ -315,6 +403,7 @@ class GUI(QMainWindow):
         cctv_layout.addWidget(cctv_frame, 1, 1)
         cctv_layout.addWidget(label, 1, 1)
         cctv_layout.addWidget(image_label, 1, 1)
+
         # Add the manage_camera_button here
         manage_camera_button = QPushButton("Manage Cameras")
         manage_camera_button.setIcon(QIcon('./images/camerasettings.svg'))
