@@ -1,5 +1,6 @@
 import time
 import cv2
+
 import numpy as np
 from PyQt5.QtCore import (Qt, QSize)
 from PyQt5.QtGui import (QIcon, QPixmap, QImage)
@@ -27,13 +28,8 @@ class GUI(QMainWindow):
         self.stacked_widget.addWidget(self.realtime_frames())
         self.stacked_widget.addWidget(self.static_dehazing_frames())
 
-        # Create a variable to keep track of the active button
-        self.active_button = None
-
-        self.active_frame = 0
-
         # Create navbar and connect buttons to frame switching
-        navbar = self.create_navbar()
+        navbar = self.navbar()
         navbar_buttons = navbar.findChildren(QPushButton)
         for button in navbar_buttons:
             button.clicked.connect(self.switch_frame)
@@ -48,9 +44,9 @@ class GUI(QMainWindow):
         self.setCentralWidget(central_widget)
 
         # call dehazing class
-        self.InputFile = None
+        # self.processed_image = None
 
-    def input_image_clicked(self):
+    def load_image(self):
         # Define the action when the "Input Image" button is clicked
         # For example, open a file dialog to select an input image
         options = QFileDialog.Options()
@@ -64,58 +60,45 @@ class GUI(QMainWindow):
 
             if open_image is not None:
                 dehazing_instance = dehazing()
-                processed_image = dehazing_instance.image_processing(
+                self.processed_image = dehazing_instance.image_processing(
                     open_image)
-                # show image  cv2 image
-                cv2.imshow("image", processed_image)
-                timestamp = time.strftime("%Y%m%d%H%M%S")
 
-                # Construct the output filename with timestamp
-                output_filename = f"proccesed_{timestamp}.png"
+                pixmap = QPixmap(input_image_path)
+                self.InputFile.setPixmap(pixmap)
 
-                # Save the processed image to the specified folder with the generated filename
+                # Scale the processed image values to the range [0, 255] without data loss
+                scaled_image = (self.processed_image *
+                                255.0).clip(0, 255).astype(np.uint8)
 
-                cv2.imwrite(output_filename,
-                            (processed_image * float(255)))
+                # Convert the NumPy array (BGR format) to an RGB image
+                rgb_image = cv2.cvtColor(
+                    scaled_image, cv2.COLOR_BGR2RGB)
 
-                # Convert the processed image to a QImage
-                # height, width, channel = processed_image.shape
-                # bytes_per_line = 3 * width
-                # q_image = QImage(processed_image.data, width,
-                #                  height, bytes_per_line, QImage.Format_RGB888)
+                # Create a QImage from the RGB image
+                qimage = QImage(rgb_image.data, rgb_image.shape[1],
+                                rgb_image.shape[0], rgb_image.shape[1] * 3, QImage.Format_BGR888).rgbSwapped()
 
-                # # Create a QLabel to display the image
-                # image_label = QLabel()
-                # pixmap = QPixmap.fromImage(q_image)
-                # image_label.setPixmap(pixmap)
-
-                # # Add the QLabel to the InputFile widget
-                # self.InputFile.layout().addWidget(image_label, 0, 0)
+                # Convert the QImage to a QPixmap
+                pixmap = QPixmap(qimage)
+                self.OutputFile.setPixmap(pixmap)
             else:
-                # Handle the case where OpenCV couldn't read the image
                 print("Error: Unable to open the selected image.")
         else:
-            # Handle the case where no file was selected
             print("No image selected.")
 
-    def set_image_in_widget(self, widget, image):
-        # Assuming 'image' is a numpy array representing the image
-        pixmap = QPixmap.fromImage(image)
-        label = widget.findChild(QLabel)
-        label.setPixmap(pixmap)
-        label.show()
-
-    def save_image_clicked(self):
-        # Define the action when the "Save Image" button is clicked
-        # For example, save the processed image
-        # Replace this with your actual save functionality
+    def save_image(self, image):
+        """Save the image to the specified path."""
+        if image is None:
+            self.show_info_dialog("Make sure to load an image first.")
+            return
         output_image_path, _ = QFileDialog.getSaveFileName(
             self, "Save Processed Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
-        if output_image_path:
-            # Do something with the selected output image path
-            print("Output Image Path:", output_image_path)
 
-    def create_navbar(self):
+        if output_image_path:
+            cv2.imwrite(output_image_path, (image * 255))
+            print("Image saved to:", output_image_path)
+
+    def navbar(self):
         # Create a widget for the navigation bar
         navbar = QWidget()
         navbar.setFixedHeight(64)
@@ -187,7 +170,7 @@ class GUI(QMainWindow):
         # btn_exit icon
         btn_exit.setIcon(QIcon('./images/exit.svg'))
         btn_exit.setIconSize(QSize(32, 32))
-        btn_exit.clicked.connect(confirm_exit)
+        btn_exit.clicked.connect(self.confirm_exit)
 
         # Add buttons to the navbar
         layout = QHBoxLayout(navbar)
@@ -203,86 +186,8 @@ class GUI(QMainWindow):
         frame_text = self.sender().text()
         if frame_text == 'Realtime Dehazing':
             self.stacked_widget.setCurrentIndex(0)
-            self.active_frame = 0
-
-            print(self.active_frame)
         elif frame_text == 'Static Dehazing':
             self.stacked_widget.setCurrentIndex(1)
-            self.active_frame = 1
-
-            print(self.active_frame)
-
-    def options_frame(self):
-        options_frame = QWidget()
-        options_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        options_frame.setFixedHeight(50)
-
-        layout = QHBoxLayout(options_frame)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        for widget in options_frame.findChildren(QWidget):
-            widget.deleteLater()
-
-        if self.active_frame == 0:
-            manage_camera_button = QPushButton("Manage Cameras")
-            manage_camera_button.setIcon(QIcon('./images/camerasettings.svg'))
-            manage_camera_button.setToolTip('Add Camera')
-            manage_camera_button.clicked.connect(self.show_options_popup)
-
-            # Apply button styling
-            manage_camera_button.setStyleSheet('''
-                QPushButton {
-                    background-color: #fff;
-                    border: 1px solid gray;
-                    border-radius: 10px;
-                    padding: 15px; /* Adjust the padding as needed */
-                }
-                QPushButton:hover {
-                    background-color: #eeeeee;
-                }
-            ''')
-
-            layout.addWidget(manage_camera_button)
-        elif self.active_frame == 1:
-            btn_input_image = QPushButton("Select Image")
-            btn_input_image.setIcon(QIcon('./images/camerasettings.svg'))
-            btn_input_image.setToolTip('Select Image')
-            btn_input_image.clicked.connect(self.input_image_clicked)
-
-            btn_save_image = QPushButton("Save Image")
-            btn_save_image.setIcon(QIcon('./images/camerasettings.svg'))
-            btn_save_image.setToolTip('Save Image')
-            btn_save_image.clicked.connect(self.save_image_clicked)
-
-            # Apply button styling
-            btn_input_image.setStyleSheet('''
-                QPushButton {
-                    background-color: #fff;
-                    border: 1px solid gray;
-                    border-radius: 10px;
-                    padding: 15px; /* Adjust the padding as needed */
-                }
-                QPushButton:hover {
-                    background-color: #eeeeee;
-                }
-            ''')
-            btn_save_image.setStyleSheet('''
-                QPushButton {
-                    background-color: #fff;
-                    border: 1px solid gray;
-                    border-radius: 10px;
-                    padding: 15px; /* Adjust the padding as needed */
-                }
-                QPushButton:hover {
-                    background-color: #eeeeee;
-                }
-            ''')
-
-            layout.addWidget(btn_input_image)
-            layout.addWidget(btn_save_image)
-
-        return options_frame
 
     def show_options_popup(self):
         options_popup = QDialog()
@@ -303,38 +208,21 @@ class GUI(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)  # Remove any margin
 
         # Input File (Only Images and Videos)
-        self.InputFile = QWidget()  # Assign InputFile to the instance variable
+        self.InputFile = QLabel()  # Use QLabel to display an image
         self.InputFile.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.InputFile.setContentsMargins(0, 0, 0, 0)  # Remove any margin
         self.InputFile.setStyleSheet(
             "border: 1px solid gray; border-radius: 10px; background-color: green;")
 
-        # Create a QLabel to display the image
-        image_label = QLabel()
-        layout.addWidget(image_label, 0, 0)
-
-        # Add widgets to the layout
-        layout.addWidget(self.InputFile, 0, 0)
-
-        # Input File (Only Images and Videos)
-        outputFile = QWidget()
-        outputFile.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        outputFile.setContentsMargins(0, 0, 0, 0)  # Remove any margin
-        outputFile.setStyleSheet(
-            "border: 1px solid gray; border-radius: 10px; background-color: black;")
-
-        # Add widgets to the layout
-        layout.addWidget(outputFile, 0, 1)
-
         # Add the "Select Image" button
-        btn_input_image = QPushButton("Select Image")
-        btn_input_image.setIcon(QIcon('./images/camerasettings.svg'))
-        btn_input_image.setToolTip('Select Image')
-        btn_input_image.clicked.connect(self.input_image_clicked)
+        btn_load_image = QPushButton("Load Image")
+        btn_load_image.setIcon(QIcon('./images/camerasettings.svg'))
+        btn_load_image.setToolTip('Load Image')
+        btn_load_image.clicked.connect(self.load_image)
 
         # Apply button styling
-        btn_input_image.setStyleSheet('''
+        btn_load_image.setStyleSheet('''
             QPushButton {
                 background-color: #fff;
                 border: 1px solid gray;
@@ -346,14 +234,28 @@ class GUI(QMainWindow):
             }
         ''')
 
-        # Add the "Select Image" button
-        layout.addWidget(btn_input_image, 1, 0)
+        # Add the "Load Image" button
+        layout.addWidget(btn_load_image, 1, 0)
+        # Add widgets to the layout
+        layout.addWidget(self.InputFile, 0, 0)
+
+        # Input File (Only Images and Videos)
+        self.OutputFile = QLabel()
+        self.OutputFile.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.OutputFile.setContentsMargins(0, 0, 0, 0)  # Remove any margin
+        self.OutputFile.setStyleSheet(
+            "border: 1px solid gray; border-radius: 10px; background-color: black;")
+
+        # Add widgets to the layout
+        layout.addWidget(self.OutputFile, 0, 1)
 
         # Add the "Save Image" button
         btn_save_image = QPushButton("Save Image")
         btn_save_image.setIcon(QIcon('./images/camerasettings.svg'))
         btn_save_image.setToolTip('Save Image')
-        btn_save_image.clicked.connect(self.save_image_clicked)
+        btn_save_image.clicked.connect(
+            lambda: self.save_image(self.processed_image))
 
         # Apply button styling
         btn_save_image.setStyleSheet('''
@@ -387,34 +289,32 @@ class GUI(QMainWindow):
         cctv_layout.setContentsMargins(0, 0, 0, 0)  # Remove any margin
 
         # CCTV Frames
-        for row in range(2):
-            for col in range(2):
-                # Create a widget for the CCTV frame
-                cctv_frame = QWidget()
-                cctv_frame.setSizePolicy(
-                    QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-                cctv_frame.setContentsMargins(0, 0, 0, 0)  # Remove any margin
-                cctv_frame.setStyleSheet(
-                    "border: 1px solid gray; border-radius: 10px; background-color: #fff;")
+        cctv_frame = QWidget()
+        cctv_frame.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-                # I want to add a label here that will display the camera name
-                label = QLabel("Camera" + str(row*2 + col + 1))
-                label.setAlignment(Qt.AlignCenter)
-                label.setStyleSheet("font-size: 20px; font-weight: bold;")
-                label.setContentsMargins(0, 0, 0, 0)  # Remove any margin
+        cctv_frame.setContentsMargins(0, 0, 0, 0)  # Remove any margin
+        cctv_frame.setStyleSheet(
+            "border: 1px solid gray; border-radius: 10px; background-color: #fff;")
 
-                # You can create an image label to display the camera feed
-                image_label = QLabel()
-                image_label.setAlignment(Qt.AlignCenter)
-                image_label.setSizePolicy(
-                    QSizePolicy.Expanding, QSizePolicy.Expanding)
-                image_label.setContentsMargins(0, 0, 0, 0)
+        # I want to add a label here that will display the camera name
+        label = QLabel("Camera Name")
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("font-size: 20px; font-weight: bold;")
+        label.setContentsMargins(0, 0, 0, 0)  # Remove any margin
 
-                # Add widgets to the layout
-                cctv_layout.addWidget(cctv_frame, row, col)
-                cctv_layout.addWidget(label, row, col)
-                cctv_layout.addWidget(image_label, row, col)
+        # You can create an image label to display the camera feed
+        image_label = QLabel()
+        image_label.setAlignment(Qt.AlignCenter)
+        image_label.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
+        image_label.setContentsMargins(0, 0, 0, 0)
+
+        # Add widgets to the layout
+        cctv_layout.addWidget(cctv_frame, 1, 1)
+        cctv_layout.addWidget(label, 1, 1)
+        cctv_layout.addWidget(image_label, 1, 1)
         # Add the manage_camera_button here
         manage_camera_button = QPushButton("Manage Cameras")
         manage_camera_button.setIcon(QIcon('./images/camerasettings.svg'))
@@ -439,12 +339,11 @@ class GUI(QMainWindow):
 
         return widget_rt
 
-
-def confirm_exit():
-    reply = QMessageBox.question(None, 'Message', "Are you sure to quit?", QMessageBox.Yes | QMessageBox.No,
-                                 QMessageBox.No)
-    if reply == QMessageBox.Yes:
-        print("Exit YES")
-        QApplication.quit()
-    elif reply == QMessageBox.No:
-        print("Exit NO")
+    def confirm_exit(self):
+        reply = QMessageBox.question(None, 'Message', "Are you sure to quit?", QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            print("Exit YES")
+            QApplication.quit()
+        elif reply == QMessageBox.No:
+            print("Exit NO")

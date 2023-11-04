@@ -448,32 +448,6 @@ class dehazing:
         # cv2.imwrite("./image/J.png", J*255)
         cv2.waitKey(0)
 
-    def simple_downsmpl(self, img, srf):
-        im_array = np.array(img)
-        im_downsampled = im_array[::srf, ::srf, :]
-        return im_downsampled
-
-    def bilinear_upsmpl(self, img, srf):
-        # height, width = img.shape
-        new_height = int(img.shape[0] * srf)
-        new_width = int(img.shape[1] * srf)
-        new_img = cv2.resize(img, (new_width, new_height),
-                             interpolation=cv2.INTER_LINEAR)
-        return new_img
-
-    def lanczos_resampling_with_scale_factor(self, img, srf):
-        new_width = int(img.shape[1] * srf)
-        new_height = int(img.shape[0] * srf)
-        img = cv2.resize(img, (new_width, new_height),
-                         interpolation=cv2.INTER_LANCZOS4)
-        return img
-
-    # Define the image processing function
-    def soft_clip_transmission(self, transmission, clip_min, clip_max):
-        # Soft-clip the transmission map
-        clipped_transmission = np.clip(transmission, clip_min, clip_max)
-        return clipped_transmission
-
     def image_processing(self, frame):
         # frame = simple_downsmpl(frame, 2)
         I = frame.astype('float64') / 255
@@ -485,7 +459,7 @@ class dehazing:
         t = self.GaussianTransmissionRefine(frame, te)
         J = self.Recover(I, t, A, 0.1)
         # J = lanczos_resampling_with_scale_factor(J, 2)
-        return J
+        return J 
 
     # Define a thread function to process a single frame
 
