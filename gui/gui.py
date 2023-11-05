@@ -15,7 +15,7 @@ os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r'path/to/qt/plugins/platforms'
 class GUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SUVIDE")
+        self.setWindowTitle("SeeThrough")
         self.setGeometry(100, 100, 1440, 900)
         self.setMinimumSize(1280, 720)  # Minimum width and height
         self.setWindowIcon(QIcon('logo.svg'))
@@ -44,9 +44,6 @@ class GUI(QMainWindow):
         central_widget.setLayout(central_layout)
         self.setCentralWidget(central_widget)
 
-        # call dehazing class
-        # self.processed_image = None
-
     def load_image(self):
         # Define the action when the "Input Image" button is clicked
         # For example, open a file dialog to select an input image
@@ -65,7 +62,10 @@ class GUI(QMainWindow):
                     open_image)
 
                 pixmap = QPixmap(input_image_path)
+                pixmap = pixmap.scaled(
+                    self.InputFile.width(), self.InputFile.height(), Qt.KeepAspectRatio)
                 self.InputFile.setPixmap(pixmap)
+                self.InputFile.setAlignment(Qt.AlignCenter)
 
                 # Scale the processed image values to the range [0, 255] without data loss
                 scaled_image = (self.processed_image *
@@ -78,10 +78,12 @@ class GUI(QMainWindow):
                 # Create a QImage from the RGB image
                 qimage = QImage(rgb_image.data, rgb_image.shape[1],
                                 rgb_image.shape[0], rgb_image.shape[1] * 3, QImage.Format_BGR888).rgbSwapped()
-
+                qimage = qimage.scaled(
+                    self.OutputFile.width(), self.OutputFile.height(), Qt.KeepAspectRatio)
                 # Convert the QImage to a QPixmap
                 pixmap = QPixmap(qimage)
                 self.OutputFile.setPixmap(pixmap)
+                self.OutputFile.setAlignment(Qt.AlignCenter)
             else:
                 print("Error: Unable to open the selected image.")
         else:
@@ -429,10 +431,7 @@ class GUI(QMainWindow):
         return widget_rt
 
     def confirm_exit(self):
-        reply = QMessageBox.question(None, 'Message', "Are you sure to quit?", QMessageBox.Yes | QMessageBox.No,
-                                     QMessageBox.No)
+        reply = QMessageBox.question(
+            self, 'Message', "Are you sure to quit?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            print("Exit YES")
             QApplication.quit()
-        elif reply == QMessageBox.No:
-            print("Exit NO")
