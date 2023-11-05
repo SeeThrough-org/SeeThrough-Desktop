@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, QV
                              QGridLayout, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox)
 from dehazing.dehazing import dehazing
 from dehazing.utils import CameraStream
+from dehazing.utils import VideoProcessor
 import configparser
 import os
 os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r'path/to/qt/plugins/platforms'
@@ -152,6 +153,7 @@ class GUI(QMainWindow):
                 color: #fff; /* Change text color on hover */
             }
         ''')
+
         btn_static_dehazing.clicked.connect(
             lambda: self.stacked_widget.setCurrentIndex(1))
         btn_video_dehazing = QPushButton('Video Dehazing')
@@ -169,6 +171,7 @@ class GUI(QMainWindow):
                 color: #fff; /* Change text color on hover */
             }
         ''')
+        btn_video_dehazing.clicked.connect(self.video_dehazing)
         btn_exit = QPushButton()
         # btn_exit icon
         btn_exit.setIcon(QIcon('./images/exit.svg'))
@@ -184,6 +187,27 @@ class GUI(QMainWindow):
         layout.addWidget(btn_exit, alignment=Qt.AlignRight)
 
         return navbar
+
+    def video_dehazing(self):
+        # ask the user to select a video file
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        input_video_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Input Video", "", "Videos (*.mp4 *.avi *.mov);;All Files (*)", options=options)
+        # ask the user to select a save location
+        output_video_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Processed Video", "", "Videos (*.mp4 *.avi *.mov)")
+        # check if the user selected a video file
+        if input_video_path:
+            # check if the user selected a save location
+            if output_video_path:
+                # create a VideoProcessor object
+                video_processor = VideoProcessor(
+                    input_video_path, output_video_path)
+                # start the video processing thread
+                video_processor.start_processing()
+            else:
+                print("No save location selected.")
 
     def switch_frame(self):
         frame_text = self.sender().text()
@@ -303,7 +327,7 @@ class GUI(QMainWindow):
             QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.InputFile.setContentsMargins(0, 0, 0, 0)  # Remove any margin
         self.InputFile.setStyleSheet(
-            "border: 1px solid gray; border-radius: 10px; background-color: green;")
+            "border: 1px solid gray; border-radius: 10px; background-color: black;")
 
         # Add the "Select Image" button
         btn_load_image = QPushButton("Load Image")
