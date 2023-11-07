@@ -4,9 +4,13 @@ import threading
 import time
 import numpy as np
 from dehazing.dehazing import dehazing
+from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize
+from PyQt5.QtGui import QImage, QPixmap
 
 
 class CameraStream(object):
+    ImagedUpdated = pyqtSignal(QImage)
+
     def __init__(self, src=0):
         """
         Initialize a CameraStream object with the specified video source.
@@ -14,7 +18,11 @@ class CameraStream(object):
         Args:
             src (int or str): The video source, typically a camera index (0 for the default camera) or a file path.
         """
+        super().__init__()
         self.capture = cv2.VideoCapture(src)
+        if not self.capture.isOpened():
+            print('Error opening video source')
+
         # Start the thread to read frames from the video stream
         self.status = False  # Initialize the 'status' attribute
         self.thread = threading.Thread(target=self.update, args=())
@@ -36,6 +44,9 @@ class CameraStream(object):
         """
         Display dehazed frames in real-time and calculate and print the frames per second (FPS).
         """
+        if not self.status:
+            print("Video source not working.")
+            return
         # Initialize frame counter and FPS variables
         frame_count = 0
         start_time = time.time()
@@ -52,8 +63,9 @@ class CameraStream(object):
                 elapsed_time = time.time() - start_time
                 fps = frame_count / elapsed_time
                 print(fps)
-                print(f"Active Threads: {threading.active_count()}")
-
+                processed_frame = cv2.convertScaleAbs(
+                    dehazed_frame, alpha=(255.0))
+                # self.ImageUpdated.emit(processed_frame)
                 # Display dehazed frame
                 cv2.imshow('Frame', dehazed_frame)
                 key = cv2.waitKey(1)

@@ -19,7 +19,7 @@ class GUI(QMainWindow):
         self.setWindowTitle("SeeThrough")
         self.setGeometry(100, 100, 1440, 900)
         self.setMinimumSize(1280, 720)  # Minimum width and height
-        self.setWindowIcon(QIcon('logo.svg'))
+        self.setWindowIcon(QIcon('gui/assets/icons/logo.svg'))
         self.setStyleSheet("QMainWindow {background-color: #fff;}")
 
         # Create a stacked widget to manage frames
@@ -40,10 +40,14 @@ class GUI(QMainWindow):
         central_layout = QVBoxLayout()
         central_layout.addWidget(self.stacked_widget)
         central_layout.addWidget(navbar)
+        # 0 is the index of Realtime Dehazing
 
         central_widget = QWidget()
         central_widget.setLayout(central_layout)
         self.setCentralWidget(central_widget)
+        self.active_button = None  # Track the active button
+        self.active_frame = 0
+        self.processed_image = None
 
     def load_image(self):
         # Define the action when the "Input Image" button is clicked
@@ -90,17 +94,19 @@ class GUI(QMainWindow):
         else:
             print("No image selected.")
 
-    def save_image(self, image):
+    def save_image(self):
         """Save the image to the specified path."""
-        if image is None:
-            self.show_info_dialog("Make sure to load an image first.")
+        if self.processed_image is None:
+            QMessageBox.information(self, "Error", "No image to save.")
             return
+
         output_image_path, _ = QFileDialog.getSaveFileName(
             self, "Save Processed Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
 
         if output_image_path:
-            cv2.imwrite(output_image_path, (image * 255))
-            print("Image saved to:", output_image_path)
+            cv2.imwrite(output_image_path, (self.processed_image * 255))
+            QMessageBox.information(
+                self, "Success", "Image saved successfully.")
 
     def navbar(self):
         # Create a widget for the navigation bar
@@ -120,6 +126,8 @@ class GUI(QMainWindow):
 
         # Create buttons for frame switching
         btn_realtime_dehazing = QPushButton('Realtime Dehazing')
+        btn_realtime_dehazing.setObjectName(
+            "realtime_button")  # Add an object name
         btn_realtime_dehazing.setStyleSheet('''
             QPushButton {
                 background-color: #fff;
@@ -139,6 +147,7 @@ class GUI(QMainWindow):
         )
 
         btn_static_dehazing = QPushButton('Static Dehazing')
+        btn_static_dehazing.setObjectName("static_button")
         btn_static_dehazing.setStyleSheet('''
             QPushButton {
                 background-color: #fff;
@@ -174,8 +183,19 @@ class GUI(QMainWindow):
         btn_video_dehazing.clicked.connect(self.video_dehazing)
         btn_exit = QPushButton()
         # btn_exit icon
-        btn_exit.setIcon(QIcon('./images/exit.svg'))
+        btn_exit.setIcon(QIcon('gui/assets/icons/exit.svg'))
         btn_exit.setIconSize(QSize(32, 32))
+        btn_exit.setStyleSheet('''
+            QPushButton {
+                background-color: #fff;
+                border: 1px solid gray;
+                border-radius: 10px;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: #eeeeee;
+            }
+        ''')
         btn_exit.clicked.connect(self.confirm_exit)
 
         # Add buttons to the navbar
@@ -189,32 +209,59 @@ class GUI(QMainWindow):
         return navbar
 
     def video_dehazing(self):
-        # ask the user to select a video file
+        # Ask the user to select a video file
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         input_video_path, _ = QFileDialog.getOpenFileName(
             self, "Select Input Video", "", "Videos (*.mp4 *.avi *.mov);;All Files (*)", options=options)
-        # ask the user to select a save location
+
+        if not input_video_path:
+            print("No input video selected.")
+            return
+
+        # Ask the user to select a save location
         output_video_path, _ = QFileDialog.getSaveFileName(
             self, "Save Processed Video", "", "Videos (*.mp4 *.avi *.mov)")
-        # check if the user selected a video file
-        if input_video_path:
-            # check if the user selected a save location
-            if output_video_path:
-                # create a VideoProcessor object
-                video_processor = VideoProcessor(
-                    input_video_path, output_video_path)
-                # start the video processing thread
-                video_processor.start_processing()
-            else:
-                print("No save location selected.")
+
+        if not output_video_path:
+            print("No save location selected.")
+            return
+
+        # Create a VideoProcessor object
+        video_processor = VideoProcessor(input_video_path, output_video_path)
+
+        # Start the video processing thread
+        video_processor.start_processing()
 
     def switch_frame(self):
         frame_text = self.sender().text()
+
+        # Define common button style
+        common_style = '''
+            background-color: #fff;
+            border: 1px solid gray;
+            border-radius: 10px;
+            padding: 10px 60px;
+            font-size: 13px;
+        '''
+        hover_style = '''
+            background-color: #373030;
+            color: #fff;
+        '''
+
+        if self.active_button:
+            # Reset the style of the previous active button
+            self.active_button.setStyleSheet(common_style)
+
         if frame_text == 'Realtime Dehazing':
             self.stacked_widget.setCurrentIndex(0)
+            self.active_button = self.findChild(QPushButton, "realtime_button")
         elif frame_text == 'Static Dehazing':
             self.stacked_widget.setCurrentIndex(1)
+            self.active_button = self.findChild(QPushButton, "static_button")
+
+        if self.active_button:
+            self.active_button.setStyleSheet(common_style + hover_style)
 
     def show_options_popup(self):
         options_popup = QDialog()
@@ -242,13 +289,13 @@ class GUI(QMainWindow):
         input_label = QLabel("IP Address:")
         layout.addWidget(input_label)
 
-        input_field = QLineEdit()
-        input_field.setPlaceholderText("Enter IP address")
-        layout.addWidget(input_field)
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("Enter IP address")
+        layout.addWidget(self.input_field)
 
         # Add a button box with custom styling
         buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            QDialogButtonBox.Save | QDialogButtonBox.Cancel,
             options_popup)
         buttons.accepted.connect(options_popup.accept)
         buttons.rejected.connect(options_popup.reject)
@@ -288,7 +335,7 @@ class GUI(QMainWindow):
             config = configparser.ConfigParser()
             config.read('settings.cfg')
             if 'DEFAULT' in config and 'input' in config['DEFAULT']:
-                input_field.setText(config['DEFAULT']['input'])
+                self.input_field.setText(config['DEFAULT']['input'])
             if 'DEFAULT' in config and 'camera_name' in config['DEFAULT']:
                 camera_name.setText(config['DEFAULT']['camera_name'])
         except (FileNotFoundError, configparser.Error) as e:
@@ -303,10 +350,14 @@ class GUI(QMainWindow):
                 config.read('settings.cfg')
                 if 'DEFAULT' not in config:
                     config['DEFAULT'] = {}
-                config['DEFAULT']['input'] = input_field.text()
+                config['DEFAULT']['input'] = self.input_field.text()
                 config['DEFAULT']['camera_name'] = camera_name.text()
                 with open('settings.cfg', 'w') as configfile:
                     config.write(configfile)
+
+                # Show a success message
+                QMessageBox.information(
+                    options_popup, "Success", "Settings saved successfully.")
             except (FileNotFoundError, configparser.Error) as e:
                 print(f"Error saving settings: {e}")
 
@@ -331,7 +382,7 @@ class GUI(QMainWindow):
 
         # Add the "Select Image" button
         btn_load_image = QPushButton("Load Image")
-        btn_load_image.setIcon(QIcon('./images/camerasettings.svg'))
+        btn_load_image.setIcon(QIcon('gui/assets/icons/settings.svg'))
         btn_load_image.setToolTip('Load Image')
         btn_load_image.clicked.connect(self.load_image)
 
@@ -366,10 +417,9 @@ class GUI(QMainWindow):
 
         # Add the "Save Image" button
         btn_save_image = QPushButton("Save Image")
-        btn_save_image.setIcon(QIcon('./images/camerasettings.svg'))
+        btn_save_image.setIcon(QIcon('gui/assets/icons/settings.svg'))
         btn_save_image.setToolTip('Save Image')
-        btn_save_image.clicked.connect(
-            lambda: self.save_image(self.processed_image))
+        btn_save_image.clicked.connect(self.save_image)
 
         # Apply button styling
         btn_save_image.setStyleSheet('''
@@ -417,41 +467,56 @@ class GUI(QMainWindow):
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("font-size: 20px; font-weight: bold;")
         label.setContentsMargins(0, 0, 0, 0)  # Remove any margin
-
         # You can create an image label to display the camera feed
-        image_label = QLabel()
-        image_label.setAlignment(Qt.AlignCenter)
-        image_label.setSizePolicy(
+        camera_feed = QLabel()
+        camera_feed.setAlignment(Qt.AlignCenter)
+        camera_feed.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Expanding)
-        image_label.setContentsMargins(0, 0, 0, 0)
+        camera_feed.setContentsMargins(0, 0, 0, 0)
 
         # Add widgets to the layout
         cctv_layout.addWidget(cctv_frame, 1, 1)
         cctv_layout.addWidget(label, 1, 1)
-        cctv_layout.addWidget(image_label, 1, 1)
+        cctv_layout.addWidget(camera_feed, 1, 1)
 
-        # Add the manage_camera_button here
-        manage_camera_button = QPushButton("Manage Cameras")
-        manage_camera_button.setIcon(QIcon('./images/camerasettings.svg'))
-        manage_camera_button.setToolTip('Add Camera')
-        manage_camera_button.clicked.connect(self.show_options_popup)
+        # read the ip address from the settings.cfg file
 
-        # Apply button styling
-        manage_camera_button.setStyleSheet('''
+        start_button = QPushButton("Start")
+        start_button.setStyleSheet('''
             QPushButton {
                 background-color: #fff;
                 border: 1px solid gray;
                 border-radius: 10px;
-                padding: 15px; /* Adjust the padding as needed */
+                padding: 15px;
             }
             QPushButton:hover {
                 background-color: #eeeeee;
             }
         ''')
 
-        # Add button to the layout
-        cctv_layout.addWidget(manage_camera_button, 2, 0, 1, 2)
+        # Create the settings button
+        manage_camera_button = QPushButton()
+        manage_camera_button.setIcon(QIcon('gui/assets/icons/settings.svg'))
+        manage_camera_button.setToolTip('Manage Cameras')
+        manage_camera_button.setStyleSheet('''
+            QPushButton {
+                background-color: #fff;
+                border: 1px solid gray;
+                border-radius: 10px;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: #eeeeee;
+            }
+        ''')
+        manage_camera_button.clicked.connect(self.show_options_popup)
+        # Create a horizontal layout and add the start button and the settings button to it
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(start_button)
+        button_layout.addWidget(manage_camera_button)
 
+        # Add the button layout to the grid layout
+        cctv_layout.addLayout(button_layout, 2, 0, 1, 2, Qt.AlignCenter)
         return widget_rt
 
     def confirm_exit(self):
