@@ -1,10 +1,10 @@
 import time
 import cv2
 import numpy as np
-from PyQt5.QtCore import (Qt, QSize)
+from PyQt5.QtCore import (Qt, QSize, pyqtSlot)
 from PyQt5.QtGui import (QIcon, QPixmap, QImage)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, QVBoxLayout, QStackedWidget, QSizePolicy,
-                             QGridLayout, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox)
+                             QGridLayout, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox, QPushButton)
 from dehazing.dehazing import dehazing
 from dehazing.utils import CameraStream
 from dehazing.utils import VideoProcessor
@@ -442,6 +442,37 @@ class GUI(QMainWindow):
 
         return widget_static
 
+    @pyqtSlot()
+    def start_camera_stream(self):
+        config = configparser.ConfigParser()
+        config.read('settings.cfg')
+        if 'DEFAULT' in config and 'input' in config['DEFAULT']:
+            ip_address = config['DEFAULT']['input']
+        else:
+            ip_address = '0'
+
+        if self.start_button.isChecked():
+            # Create an instance of the CameraStream class (assuming it's properly initialized)
+            self.camera_stream = CameraStream(ip_address)
+
+            # Connect the CameraStream's signal to update the cctv_frame
+            self.camera_stream.ImageUpdated.connect(self.update_cctv_frame)
+
+            # Start the camera stream
+            self.camera_stream.status = True
+            self.camera_stream.start()
+        else:
+            # Stop the camera stream if the button is unchecked
+            if hasattr(self, 'camera_stream'):
+                self.camera_stream.status = False
+                self.camera_stream.stop()
+
+    @pyqtSlot(QImage)
+    def update_cctv_frame(self, image):
+        # Update the camera feed label with the received image
+        self.cctv_frame.setPixmap(QPixmap.fromImage(image))
+        self.cctv_frame.setAlignment(Qt.AlignCenter)
+
     def realtime_frames(self):
         # Create widget
         widget_rt = QWidget()
@@ -454,16 +485,16 @@ class GUI(QMainWindow):
 
         # CCTV Frames
 
-        cctv_frame = QWidget()
-        cctv_frame.setSizePolicy(
+        self.cctv_frame = QLabel()
+        self.cctv_frame.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        cctv_frame.setContentsMargins(0, 0, 0, 0)  # Remove any margin
-        cctv_frame.setStyleSheet(
-            "border: 1px solid gray; border-radius: 10px; background-color: #fff;")
+        self.cctv_frame.setContentsMargins(0, 0, 0, 0)  # Remove any margin
+        self.cctv_frame.setStyleSheet(
+            "border: 1px solid gray; border-radius: 10px; background-color: black;")
 
         # I want to add a label here that will display the camera name
-        label = QLabel("Camera Name")
+        label = QLabel("")
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("font-size: 20px; font-weight: bold;")
         label.setContentsMargins(0, 0, 0, 0)  # Remove any margin
@@ -475,24 +506,17 @@ class GUI(QMainWindow):
         camera_feed.setContentsMargins(0, 0, 0, 0)
 
         # Add widgets to the layout
-        cctv_layout.addWidget(cctv_frame, 1, 1)
+        cctv_layout.addWidget(self.cctv_frame, 1, 1)
         cctv_layout.addWidget(label, 1, 1)
         cctv_layout.addWidget(camera_feed, 1, 1)
 
         # read the ip address from the settings.cfg file
 
-        start_button = QPushButton("Start")
-        start_button.setStyleSheet('''
-            QPushButton {
-                background-color: #fff;
-                border: 1px solid gray;
-                border-radius: 10px;
-                padding: 15px;
-            }
-            QPushButton:hover {
-                background-color: #eeeeee;
-            }
-        ''')
+        self.start_button = QPushButton("Start")
+        self.start_button.setCheckable(True)  # Make it a toggle button
+
+        # Connect the button's toggled signal to the start_camera_stream method
+        self.start_button.toggled.connect(self.start_camera_stream)
 
         # Create the settings button
         manage_camera_button = QPushButton()
@@ -512,7 +536,7 @@ class GUI(QMainWindow):
         manage_camera_button.clicked.connect(self.show_options_popup)
         # Create a horizontal layout and add the start button and the settings button to it
         button_layout = QHBoxLayout()
-        button_layout.addWidget(start_button)
+        button_layout.addWidget(self.start_button)
         button_layout.addWidget(manage_camera_button)
 
         # Add the button layout to the grid layout

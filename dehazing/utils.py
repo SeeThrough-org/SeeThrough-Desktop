@@ -4,75 +4,78 @@ import threading
 import time
 import numpy as np
 from dehazing.dehazing import dehazing
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize
 from PyQt5.QtGui import QImage, QPixmap
 
 
-class CameraStream(object):
-    ImagedUpdated = pyqtSignal(QImage)
+class CameraStream(QThread):
+    # Signal emitted when a new image or a new frame is ready.
+    ImageUpdated = pyqtSignal(QImage)
 
-    def __init__(self, src=0):
-        """
-        Initialize a CameraStream object with the specified video source.
+    def __init__(self, url) -> None:
+        super(CameraStream, self).__init__()
+        # Declare and initialize instance variables.
+        self.url = url
+        self.__thread_active = True
+        self.fps = 0
+        self.__thread_pause = False
 
-        Args:
-            src (int or str): The video source, typically a camera index (0 for the default camera) or a file path.
-        """
-        super().__init__()
-        self.capture = cv2.VideoCapture(src)
-        if not self.capture.isOpened():
-            print('Error opening video source')
-
-        # Start the thread to read frames from the video stream
-        self.status = False  # Initialize the 'status' attribute
-        self.thread = threading.Thread(target=self.update, args=())
-        self.thread.daemon = True
-        self.thread.start()
-
-    def update(self):
-        """
-        Continuously capture frames from the video source in a separate thread.
-        """
-        # Read the next frame from the stream in a different thread
-        while True:
-            if self.capture.isOpened():
-                (self.status, self.img) = self.capture.read()
-
-            time.sleep(.01)
-
-    def show_frame(self):
-        """
-        Display dehazed frames in real-time and calculate and print the frames per second (FPS).
-        """
-        if not self.status:
-            print("Video source not working.")
-            return
-        # Initialize frame counter and FPS variables
+    def run(self) -> None:
+        # Capture video from a network stream.
+        cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+        # Get default video FPS.
+        self.fps = cap.get(cv2.CAP_PROP_FPS)
+        print(self.fps)
         frame_count = 0
         start_time = time.time()
-        dehazing_instance = dehazing()
+        # If video capturing has been initialized already.q
+        if cap.isOpened():
+            # While the thread is active.
+            while self.__thread_active:
+                #
+                if not self.__thread_pause:
+                    # Grabs, decodes and returns the next video frame.
+                    ret, frame = cap.read()
+                    dehazing_instance = dehazing()
+                    # If frame is read correctly.
+                    if ret:
+                        dehazed_frame = dehazing_instance.image_processing(
+                            frame)  # P
+                        frame_count += 1
+                        elapsed_time = time.time() - start_time
+                        fps = frame_count / elapsed_time
+                        print(f"Original FPS: {self.fps}")
+                        print(f"Current FPS: {fps}")
 
-        while True:
-            # Call the update method to get the latest frame
-            if self.status:
-                dehazed_frame = dehazing_instance.image_processing(
-                    self.img)  # Pass the frame as an argument
+                        # Scale the processed image values to the range [0, 255] without data loss
+                        scaled_image = (dehazed_frame *
+                                        255.0).clip(0, 255).astype(np.uint8)
 
-                # Calculate FPS
-                frame_count += 1
-                elapsed_time = time.time() - start_time
-                fps = frame_count / elapsed_time
-                print(fps)
-                processed_frame = cv2.convertScaleAbs(
-                    dehazed_frame, alpha=(255.0))
-                # self.ImageUpdated.emit(processed_frame)
-                # Display dehazed frame
-                cv2.imshow('Frame', dehazed_frame)
-                key = cv2.waitKey(1)
-                if key == ord('q'):
-                    self.capture.release()
-                    cv2.destroyAllWindows()
-                    exit(1)
+                        # Convert the NumPy array (BGR format) to an RGB image
+                        rgb_image = cv2.cvtColor(
+                            scaled_image, cv2.COLOR_BGR2RGB)
+
+                        # Create a QImage from the RGB image
+                        qimage = QImage(rgb_image.data, rgb_image.shape[1],
+                                        rgb_image.shape[0], rgb_image.shape[1] * 3, QImage.Format_BGR888).rgbSwapped()
+
+                        # Emit this signal to notify that a new image or frame is available.
+                        self.ImageUpdated.emit(qimage)
+                    else:
+                        break
+        # When everything done, release the video capture object.
+        cap.release()
+        # Tells the thread's event loop to exit with return code 0 (success).
+        self.quit()
+
+    def stop(self) -> None:
+        self.__thread_active = False
+
+    def pause(self) -> None:
+        self.__thread_pause = True
+
+    def unpause(self) -> None:
+        self.__thread_pause = False
 
 
 class VideoProcessor():
