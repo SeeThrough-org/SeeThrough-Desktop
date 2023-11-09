@@ -456,6 +456,7 @@ class GUI(QMainWindow):
             self.camera_stream = CameraStream(ip_address)
 
             # Connect the CameraStream's signal to update the cctv_frame
+
             self.camera_stream.ImageUpdated.connect(self.update_cctv_frame)
 
             # Start the camera stream
@@ -469,8 +470,15 @@ class GUI(QMainWindow):
 
     @pyqtSlot(QImage)
     def update_cctv_frame(self, image):
-        # Update the camera feed label with the received image
-        self.cctv_frame.setPixmap(QPixmap.fromImage(image))
+        # Convert the image to QPixmap
+        pixmap = QPixmap.fromImage(image)
+
+        # Scale the pixmap while keeping the aspect ratio
+        pixmap = pixmap.scaled(self.cctv_frame.width(),
+                               self.cctv_frame.height(), Qt.KeepAspectRatio)
+
+        # Update the camera feed label with the scaled pixmap
+        self.cctv_frame.setPixmap(pixmap)
         self.cctv_frame.setAlignment(Qt.AlignCenter)
 
     def realtime_frames(self):
