@@ -7,6 +7,7 @@ import numpy as np
 from dehazing.dehazing import dehazing
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize
 from PyQt5.QtGui import QImage, QPixmap
+from threading import Lock
 
 
 class CameraStream(QThread):
@@ -18,6 +19,7 @@ class CameraStream(QThread):
         self.status = None
         self.frame_count = 0
         self.start_time = time.time()
+        self.lock = Lock()  # Initialize a lock
 
     def update(self):
         while True:
@@ -27,20 +29,21 @@ class CameraStream(QThread):
                     dehazing_instance = dehazing()
                     dehazed_frame = dehazing_instance.image_processing(frame)
 
+                    with self.lock:  # Acquire the lock
+                        self.frame_count += 1
+                        elapsed_time = time.time() - self.start_time
+                    # Release the lock here
+
+                    fps = self.frame_count / elapsed_time
+                    print(f"Current FPS: {fps:.2f}")
+
                     scaled_image = (
                         dehazed_frame * 255.0).clip(0, 255).astype(np.uint8)
                     rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
-
                     qimage = QImage(rgb_image.data, rgb_image.shape[1], rgb_image.shape[0],
                                     rgb_image.shape[1] * 3, QImage.Format_RGB888)
 
                     self.ImageUpdated.emit(qimage)
-
-                    # Calculate FPS
-                    self.frame_count += 1
-                    elapsed_time = time.time() - self.start_time
-                    fps = self.frame_count / elapsed_time
-                    print(f"Current FPS: {fps:.2f}")
                 else:
                     break
             time.sleep(0.01)  # Adjust this delay as needed
