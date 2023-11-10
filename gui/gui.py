@@ -456,16 +456,18 @@ class GUI(QMainWindow):
             self.camera_stream = CameraStream(ip_address)
 
             # Connect the CameraStream's signal to update the cctv_frame
-
+            self.camera_stream.run()
             self.camera_stream.ImageUpdated.connect(self.update_cctv_frame)
 
             # Start the camera stream
-            self.camera_stream.status = True
+            # self.camera_stream.status = True
             self.camera_stream.start()
+            self.start_button.setText("Stop")
         else:
             # Stop the camera stream if the button is unchecked
+            self.start_button.setText("Start")
             if hasattr(self, 'camera_stream'):
-                self.camera_stream.status = False
+                # self.camera_stream.status = False
                 self.camera_stream.stop()
 
     @pyqtSlot(QImage)
