@@ -5,7 +5,7 @@ from threading import Thread
 import time
 import numpy as np
 from dehazing.dehazing import dehazing
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize,  QMutex, QMutexLocker
 from PyQt5.QtGui import QImage, QPixmap
 from threading import Lock
 
@@ -19,24 +19,29 @@ class CameraStream(QThread):
         self.status = None
         self.frame_count = 0
         self.start_time = time.time()
-        self.lock = Lock()  # Initialize a lock
+        self.capture_mutex = QMutex()  # Mutex for VideoCapture
+        self.mutex = QMutex()  # Mutex for other shared variables
 
     def update(self):
         while True:
-            if self.capture.isOpened():
-                self.status, frame = self.capture.read()
-                if self.status:
-                    dehazing_instance = dehazing()
-                    dehazed_frame = dehazing_instance.image_processing(frame)
+            with QMutexLocker(self.capture_mutex):
+                if self.capture.isOpened():
+                    self.status, frame = self.capture.read()
+                else:
+                    self.status = False  # Ensure status is False if the capture is not opened
 
-                    with self.lock:  # Acquire the lock
-                        self.frame_count += 1
-                        elapsed_time = time.time() - self.start_time
-                    # Release the lock here
+            if self.status:
+                dehazing_instance = dehazing()
+                dehazed_frame = dehazing_instance.image_processing(frame)
 
+                with QMutexLocker(self.mutex):  # Acquire the mutex for shared variables
+                    self.frame_count += 1
+                    elapsed_time = time.time() - self.start_time
                     fps = self.frame_count / elapsed_time
                     print(f"Current FPS: {fps:.2f}")
-
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    cv2.putText(
+                        dehazed_frame, f"FPS: {fps:.2f}", (10, 30), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
                     scaled_image = (
                         dehazed_frame * 255.0).clip(0, 255).astype(np.uint8)
                     rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
@@ -44,8 +49,9 @@ class CameraStream(QThread):
                                     rgb_image.shape[1] * 3, QImage.Format_RGB888)
 
                     self.ImageUpdated.emit(qimage)
-                else:
-                    break
+            else:
+                break
+
             time.sleep(0.01)  # Adjust this delay as needed
 
     def run(self) -> None:
@@ -54,7 +60,8 @@ class CameraStream(QThread):
         self.thread.start()
 
     def stop(self) -> None:
-        self.capture.release()
+        with QMutexLocker(self.capture_mutex):
+            self.capture.release()
         cv2.destroyAllWindows()
         self.terminate()
 
