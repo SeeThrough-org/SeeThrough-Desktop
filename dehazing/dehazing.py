@@ -1,33 +1,46 @@
 import cv2
-import math
-import time
 import numpy as np
-import scipy.sparse as sp
-import scipy.sparse.linalg
-import pymatting
-import threading
-import tkinter as tk
-from tkinter import filedialog
-import threading
-from concurrent.futures import ThreadPoolExecutor
 
 
 class dehazing:
-    def DarkChannel(self, im, sz):
-        b, g, r = cv2.split(im)
-        dc = cv2.min(cv2.min(r, g), b)  # Use CPU min function
+    def __init__(self):
+        self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
 
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (sz, sz))
-        dark = cv2.erode(dc, kernel)
+    def DarkChannel(self, im, sz):
+        if self.use_cuda:
+            print("Using GPU")
+            im_gpu = cv2.cuda_GpuMat()
+            im_gpu.upload(im)
+
+            # Cuda Split
+            b, g, r = cv2.cuda.split(im)
+
+            # Compute DCP
+            dc = cv2.cuda.min(cv2.cuda.min(r, g), b)  # Use CPU min function
+
+            # Create Kernel
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (sz, sz))
+
+            # Erode image
+            dark_gpu = cv2.cuda.createMorphologyFilter(
+                cv2.MORPH_ERODE, dc.type(), kernel)
+            result = dark_gpu.apply(dc)
+
+            # Download from GPU
+            dark = result.download()
+        else:
+            print("Using CPU")
+            b, g, r = cv2.split(im)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (sz, sz))
+            dc = cv2.min(cv2.min(r, g), b)
+            dark = cv2.erode(dc, kernel)
 
         return dark
 
-    # @jit
     def EstimateA(self, img, darkChannel):
         h, w, _ = img.shape
         length = h * w
         num = max(int(length * 0.0001), 1)
-        # convert to a row vector
         darkChannVec = np.reshape(darkChannel, length)
         index = darkChannVec.argsort()[length - num:]
         rowIdx = index // w
@@ -35,9 +48,18 @@ class dehazing:
         coords = np.stack((rowIdx, colIdx), axis=1)
 
         sumA = np.zeros((1, 3))
-        for coord in coords:
-            row, col = coord
-            sumA += img[row, col, :]
+
+        if self.use_cuda:
+            img_cuda = cv2.cuda_GpuMat()
+            img_cuda.upload(img)
+            for coord in coords:
+                row, col = coord
+                sumA += img_cuda.row(row).col(col).download()
+        else:
+            for coord in coords:
+                row, col = coord
+                sumA += img[row, col, :]
+
         A = sumA / num
         return A
 
@@ -54,8 +76,14 @@ class dehazing:
     def GaussianTransmissionRefine(self, et):
         r = 89  # radius of the Gaussian filter
 
-        # Apply Gaussian filtering to the transmission map
-        t = cv2.GaussianBlur(et, (r, r), 0)
+        if self.use_cuda:
+            et_cuda = cv2.cuda_GpuMat()
+            et_cuda.upload(et)
+            t_cuda = cv2.cuda_GpuMat()
+            cv2.cuda.GaussianBlur(et_cuda, (r, r), 0, t_cuda)
+            t = t_cuda.download()
+        else:
+            t = cv2.GaussianBlur(et, (r, r), 0)
 
         return t
 
@@ -69,14 +97,11 @@ class dehazing:
         return res
 
     def image_processing(self, frame):
-        # frame = simple_downsmpl(frame, 2)
         I = frame.astype('float64') / 255
-        # Adjust kernel size and sigma as needed
         I_blurred = cv2.GaussianBlur(I, (5, 5), 0)
         dark = self.DarkChannel(I_blurred, 15)
         A = self.EstimateA(I, dark)
         te = self.TransmissionEstimate(I, A, 15)
         t = self.GaussianTransmissionRefine(te)
         J = self.Recover(I, t, A, 0.1)
-        # J = lanczos_resampling_with_scale_factor(J, 2)
         return J
