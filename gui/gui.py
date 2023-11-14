@@ -146,7 +146,7 @@ class GUI(QMainWindow):
             lambda: self.stacked_widget.setCurrentIndex(0)
         )
 
-        btn_static_dehazing = QPushButton('Static Dehazing')
+        btn_static_dehazing = QPushButton('Image Dehazing')
         btn_static_dehazing.setObjectName("static_button")
         btn_static_dehazing.setStyleSheet('''
             QPushButton {
@@ -278,14 +278,6 @@ class GUI(QMainWindow):
         title_label = QLabel("<h2>Camera Options</h2>")
         layout.addWidget(title_label)
 
-        # Create labels and input fields for Camera Name and IP Address
-        camera_name_label = QLabel("Camera Name:")
-        layout.addWidget(camera_name_label)
-
-        camera_name = QLineEdit()
-        camera_name.setPlaceholderText("Enter camera name")
-        layout.addWidget(camera_name)
-
         input_label = QLabel("IP Address:")
         layout.addWidget(input_label)
 
@@ -336,8 +328,6 @@ class GUI(QMainWindow):
             config.read('settings.cfg')
             if 'DEFAULT' in config and 'input' in config['DEFAULT']:
                 self.input_field.setText(config['DEFAULT']['input'])
-            if 'DEFAULT' in config and 'camera_name' in config['DEFAULT']:
-                camera_name.setText(config['DEFAULT']['camera_name'])
         except (FileNotFoundError, configparser.Error) as e:
             print(f"Error loading settings: {e}")
 
@@ -351,7 +341,6 @@ class GUI(QMainWindow):
                 if 'DEFAULT' not in config:
                     config['DEFAULT'] = {}
                 config['DEFAULT']['input'] = self.input_field.text()
-                config['DEFAULT']['camera_name'] = camera_name.text()
                 with open('settings.cfg', 'w') as configfile:
                     config.write(configfile)
 
