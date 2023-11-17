@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import cv2
 import threading
@@ -8,6 +9,7 @@ from dehazing.dehazing import dehazing
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize,  QMutex, QMutexLocker
 from PyQt5.QtGui import QImage, QPixmap
 from threading import Lock
+import multiprocessing
 
 
 class CameraStream(QThread):
@@ -96,10 +98,26 @@ class VideoProcessor():
     def set_progress_signal(self, progress_signal):
         self.progress_signal = progress_signal
 
+    def process_frame(self, frame):
+        """
+        Process a single frame: dehaze it and return the processed frame.
+
+        Args:
+            frame: The input frame.
+
+        Returns:
+            processed_frame: The processed frame.
+        """
+        dehazing_instance = dehazing()
+        processed_frame = dehazing_instance.image_processing(frame)
+        processed_frame = cv2.convertScaleAbs(processed_frame, alpha=(255.0))
+        return processed_frame
+
     def process_video(self):
         """
         Process the input video, dehaze each frame, and save the result to the output video file.
         """
+        start_time = time.time()
         cap = cv2.VideoCapture(self.input_file)
         if not cap.isOpened():
             print('Error opening video file')
@@ -114,27 +132,30 @@ class VideoProcessor():
         with self.status_lock:
             self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            dehazing_instance = dehazing()
-            processed_frame = dehazing_instance.image_processing(frame)
-            cv2.imshow('Processed Video', processed_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-            processed_frame = cv2.convertScaleAbs(
-                processed_frame, alpha=(255.0))
+        # Use ThreadPoolExecutor to parallelize frame processing
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = []
 
-            out.write(processed_frame)
-            with self.status_lock:
-                self.frames_processed += 1
-                print(
-                    f"Processed {self.frames_processed} of {self.total_frames} frames")
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                future = executor.submit(self.process_frame, frame)
+                futures.append(future)
+
+            for future in futures:
+                processed_frame = future.result()
+                out.write(processed_frame)
+                with self.status_lock:
+                    self.frames_processed += 1
+                    print(
+                        f"Processed {self.frames_processed} of {self.total_frames} frames")
 
         cap.release()
         out.release()
         cv2.destroyAllWindows()
+        print(f"Processing took {time.time() - start_time} seconds")
 
     def start_processing(self):
         """
