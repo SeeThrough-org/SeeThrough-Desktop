@@ -48,51 +48,20 @@ class GUI(QMainWindow):
         self.active_button = None  # Track the active button
         self.active_frame = 0
         self.processed_image = None
+        self.image_path = None
 
     def load_image(self):
         # Define the action when the "Input Image" button is clicked
         # For example, open a file dialog to select an input image
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        input_image_path, _ = QFileDialog.getOpenFileName(
+        self.image_path, _ = QFileDialog.getOpenFileName(
             self, "Select Input Image", "", "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)", options=options)
-
-        if input_image_path:
-            # Read the image using OpenCV
-            open_image = cv2.imread(input_image_path)
-
-            if open_image is not None:
-                dehazing_instance = dehazing()
-                self.processed_image = dehazing_instance.image_processing(
-                    open_image)
-
-                pixmap = QPixmap(input_image_path)
-                pixmap = pixmap.scaled(
-                    self.InputFile.width(), self.InputFile.height(), Qt.KeepAspectRatio)
-                self.InputFile.setPixmap(pixmap)
-                self.InputFile.setAlignment(Qt.AlignCenter)
-
-                # Scale the processed image values to the range [0, 255] without data loss
-                scaled_image = (self.processed_image *
-                                255.0).clip(0, 255).astype(np.uint8)
-
-                # Convert the NumPy array (BGR format) to an RGB image
-                rgb_image = cv2.cvtColor(
-                    scaled_image, cv2.COLOR_BGR2RGB)
-
-                # Create a QImage from the RGB image
-                qimage = QImage(rgb_image.data, rgb_image.shape[1],
-                                rgb_image.shape[0], rgb_image.shape[1] * 3, QImage.Format_BGR888).rgbSwapped()
-                qimage = qimage.scaled(
-                    self.OutputFile.width(), self.OutputFile.height(), Qt.KeepAspectRatio)
-                # Convert the QImage to a QPixmap
-                pixmap = QPixmap(qimage)
-                self.OutputFile.setPixmap(pixmap)
-                self.OutputFile.setAlignment(Qt.AlignCenter)
-            else:
-                print("Error: Unable to open the selected image.")
-        else:
-            print("No image selected.")
+        pixmap = QPixmap(self.image_path)
+        pixmap = pixmap.scaled(
+            self.InputFile.width(), self.InputFile.height(), Qt.KeepAspectRatio)
+        self.InputFile.setPixmap(pixmap)
+        self.InputFile.setAlignment(Qt.AlignCenter)
 
     def save_image(self):
         """Save the image to the specified path."""
@@ -107,6 +76,40 @@ class GUI(QMainWindow):
             cv2.imwrite(output_image_path, (self.processed_image * 255))
             QMessageBox.information(
                 self, "Success", "Image saved successfully.")
+            return
+
+    def start_processing(self):
+        if self.image_path is None:
+            QMessageBox.information(
+                self, "Error", "Please, Load an Image First!")
+            return
+        image = cv2.imread(self.image_path)
+        dehazing_instance = dehazing()
+        self.processed_image = dehazing_instance.image_processing(
+            image)
+        pixmap = QPixmap(self.image_path)
+        pixmap = pixmap.scaled(
+            self.InputFile.width(), self.InputFile.height(), Qt.KeepAspectRatio)
+        self.InputFile.setPixmap(pixmap)
+        self.InputFile.setAlignment(Qt.AlignCenter)
+
+        # Scale the processed image values to the range [0, 255] without data loss
+        scaled_image = (self.processed_image *
+                        255.0).clip(0, 255).astype(np.uint8)
+
+        # Convert the NumPy array (BGR format) to an RGB image
+        rgb_image = cv2.cvtColor(
+            scaled_image, cv2.COLOR_BGR2RGB)
+
+        # Create a QImage from the RGB image
+        qimage = QImage(rgb_image.data, rgb_image.shape[1],
+                        rgb_image.shape[0], rgb_image.shape[1] * 3, QImage.Format_BGR888).rgbSwapped()
+        qimage = qimage.scaled(
+            self.OutputFile.width(), self.OutputFile.height(), Qt.KeepAspectRatio)
+        # Convert the QImage to a QPixmap
+        pixmap = QPixmap(qimage)
+        self.OutputFile.setPixmap(pixmap)
+        self.OutputFile.setAlignment(Qt.AlignCenter)
 
     def navbar(self):
         # Create a widget for the navigation bar
@@ -424,7 +427,10 @@ class GUI(QMainWindow):
         ''')
 
         layout.addWidget(btn_save_image, 1, 1)  # Add the "Save Image" button
+        btn_start_processing = QPushButton("Start Processing")
+        btn_start_processing.clicked.connect(self.start_processing)
 
+        layout.addWidget(btn_start_processing, 2, 0, 1, 2)
         # Set equal stretch factors for the columns
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
