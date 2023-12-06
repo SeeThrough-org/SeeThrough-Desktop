@@ -11,41 +11,77 @@ import logging
 
 
 class CameraStream(QThread):
-    ImageUpdated = pyqtSignal(np.ndarray)
+    ImageUpdated = pyqtSignal(QImage)
 
     def __init__(self, url) -> None:
         super(CameraStream, self).__init__()
-        self.capture = cv2.VideoCapture(url)
-        self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 2)
-
+        try:
+            self.capture = cv2.VideoCapture(url)
+            if not self.capture.isOpened():
+                raise ValueError(
+                    f"Error: Unable to open video capture from {url}")
+        except Exception as e:
+            print(f"Error initializing video capture: {e}")
+            self.status = False
         self.status = None
         self.frame_count = 0
         self.start_time = time.time()
         self.capture_mutex = QMutex()  # Mutex for VideoCapture
         self.mutex = QMutex()  # Mutex for other shared variables
+        self.logger = self.setup_logger()
+
+    def take_screenshot(self, frame, prefix=""):
+        # Save the frame as an image file
+        screenshot_filename = f"{prefix}_screenshot_{time.time()}.png"
+        cv2.imwrite(screenshot_filename, frame)
+        print(f"Screenshot saved as {screenshot_filename}")
+
+    def setup_logger(self):
+        logger = logging.getLogger("CameraStreamLogger")
+        logger.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s')
+
+        # Log to console
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+
+        return logger
 
     def update(self):
         while True:
-            with QMutexLocker(self.capture_mutex):
-                if self.capture.isOpened():
-                    self.status, frame = self.capture.read()
-                else:
-                    self.status = False  # Ensure status is False if the capture is not opened
+            if self.capture.isOpened():
+                self.status, frame = self.capture.read()
+            else:
+                self.status = False  # Ensure status is False if the capture is not opened
 
             if self.status:
+                # self.take_screenshot(frame, "Original")
                 dehazing_instance = dehazing()
-                frame = dehazing_instance.image_processing(frame)
+                dehazed_frame = dehazing_instance.image_processing(frame)
 
-                with QMutexLocker(self.mutex):  # Acquire the mutex for shared variables
-                    self.frame_count += 1
-                    elapsed_time = time.time() - self.start_time
-                    fps = self.frame_count / elapsed_time
-                    print(f"Current FPS: {fps:.2f}")
+                self.frame_count += 1
+                elapsed_time = time.time() - self.start_time
+                fps = self.frame_count / elapsed_time
+                # print(f"Current FPS: {fps:.2f}")
+                self.logger.debug(f"FPS: {fps}")
+                # font = cv2.FONT_HERSHEY_SIMPLEX
+                # cv2.putText(
+                #     dehazed_frame, f"FPS: {fps:.2f}", (10, 30), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
+                scaled_image = (
+                    dehazed_frame * 255.0).clip(0, 255).astype(np.uint8)
+                # self.take_screenshot(scaled_image, "Dehazed")
+                rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
+                qimage = QImage(rgb_image.data, rgb_image.shape[1], rgb_image.shape[0],
+                                rgb_image.shape[1] * 3, QImage.Format_RGB888)
 
-                    self.ImageUpdated.emit(frame)
+                self.ImageUpdated.emit(qimage)
             else:
                 break
-            time.sleep(0)
+
+            time.sleep(0.01)  # Adjust this delay as needed
 
     def run(self) -> None:
         self.thread = Thread(target=self.update, args=())
@@ -53,8 +89,7 @@ class CameraStream(QThread):
         self.thread.start()
 
     def stop(self) -> None:
-        with QMutexLocker(self.capture_mutex):
-            self.capture.release()
+        self.capture.release()
         cv2.destroyAllWindows()
         self.terminate()
 
