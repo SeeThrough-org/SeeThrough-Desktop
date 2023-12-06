@@ -4,10 +4,13 @@ import numpy as np
 from PyQt5.QtCore import (Qt, QSize, pyqtSlot)
 from PyQt5.QtGui import (QIcon, QPixmap, QImage)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, QVBoxLayout, QStackedWidget, QSizePolicy,
-                             QGridLayout, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox, QPushButton)
+                             QGridLayout, QSplashScreen, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox, QPushButton, QDesktopWidget
+                             )
 from dehazing.dehazing import dehazing
-from dehazing.utils import CameraStream
+from dehazing.utils import *
 from dehazing.utils import VideoProcessor
+from PyQt5.QtCore import Qt, QTimer, QThread
+import sys
 import configparser
 import os
 os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r'path/to/qt/plugins/platforms'
@@ -16,6 +19,21 @@ os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r'path/to/qt/plugins/platforms'
 class GUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.background_pixmap = QPixmap('gui/assets/splash.jpg')
+        self.background_pixmap = self.background_pixmap.scaled(
+            800, 800, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.splash = QSplashScreen(self.background_pixmap)
+
+        # Get the current screen desktop geometry
+        screen_geometry = QApplication.desktop().screenGeometry()
+        splash_width = 800
+        splash_height = 400
+        x = (screen_geometry.width() - splash_width) // 2
+        y = (screen_geometry.height() - splash_height) // 2
+        self.splash.setGeometry(x, y, splash_width, splash_height)
+        self.splash.show()
+
+        QTimer.singleShot(2000, self.show_main_window)
         self.setWindowTitle("SeeThrough")
         self.setGeometry(100, 100, 1440, 900)
         self.setMinimumSize(1280, 720)  # Minimum width and height
@@ -49,6 +67,12 @@ class GUI(QMainWindow):
         self.active_frame = 0
         self.processed_image = None
         self.image_path = None
+        self.camera_stream = None
+
+    def show_main_window(self):
+        # Close splash screen and show main GUI
+        self.splash.finish(self)
+        self.show()
 
     def load_image(self):
         # Define the action when the "Input Image" button is clicked
@@ -343,7 +367,8 @@ class GUI(QMainWindow):
                 config.read('settings.cfg')
                 if 'DEFAULT' not in config:
                     config['DEFAULT'] = {}
-                config['DEFAULT']['input'] = self.input_field.text()
+                config['DEFAULT']['input'] = self.input_field.text().replace(
+                    '%', '%%')
                 with open('settings.cfg', 'w') as configfile:
                     config.write(configfile)
 
@@ -451,12 +476,19 @@ class GUI(QMainWindow):
             self.camera_stream = CameraStream(ip_address)
 
             # Connect the CameraStream's signal to update the cctv_frame
-            self.camera_stream.run()
             self.camera_stream.ImageUpdated.connect(self.update_cctv_frame)
 
-            # Start the camera stream
-            # self.camera_stream.status = True
+            # # Create a QThread and move the CameraStream object to that thread
+            self.camera_thread = QThread()
+            self.camera_stream.moveToThread(self.camera_thread)
+
+            # Connect signals to start and stop the thread
+            self.camera_thread.started.connect(self.camera_stream.run)
+            self.camera_thread.finished.connect(self.camera_stream.stop)
+
+            # Start the camera thread
             self.camera_stream.start()
+
             self.start_button.setText("Stop")
         else:
             # Stop the camera stream if the button is unchecked
@@ -465,10 +497,16 @@ class GUI(QMainWindow):
                 # self.camera_stream.status = False
                 self.camera_stream.stop()
 
-    @pyqtSlot(QImage)
-    def update_cctv_frame(self, image):
+    @pyqtSlot(np.ndarray)
+    def update_cctv_frame(self, cv_img):
+        scaled_image = (
+            cv_img * 255.0).clip(0, 255).astype(np.uint8)
+        # self.take_screenshot(scaled_image, "Dehazed")
+        rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
+        qimage = QImage(rgb_image.data, rgb_image.shape[1], rgb_image.shape[0],
+                        rgb_image.shape[1] * 3, QImage.Format_RGB888)
         # Convert the image to QPixmap
-        pixmap = QPixmap.fromImage(image)
+        pixmap = QPixmap.fromImage(qimage)
 
         # Scale the pixmap while keeping the aspect ratio
         pixmap = pixmap.scaled(self.cctv_frame.width(),
@@ -519,9 +557,10 @@ class GUI(QMainWindow):
 
         self.start_button = QPushButton("Start")
         self.start_button.setCheckable(True)  # Make it a toggle button
-
         # Connect the button's toggled signal to the start_camera_stream method
         self.start_button.toggled.connect(self.start_camera_stream)
+
+        self.screenshot_button = QPushButton("Screenshot")
 
         # Create the settings button
         manage_camera_button = QPushButton()
@@ -543,7 +582,7 @@ class GUI(QMainWindow):
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.start_button)
         button_layout.addWidget(manage_camera_button)
-
+        button_layout.addWidget(self.screenshot_button)
         # Add the button layout to the grid layout
         cctv_layout.addLayout(button_layout, 2, 0, 1, 2, Qt.AlignCenter)
         return widget_rt
