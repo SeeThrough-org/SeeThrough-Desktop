@@ -4,9 +4,9 @@ import numpy as np
 from PyQt5.QtCore import (Qt, QSize, pyqtSlot)
 from PyQt5.QtGui import (QIcon, QPixmap, QImage)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, QVBoxLayout, QStackedWidget, QSizePolicy,
-                             QGridLayout, QSplashScreen, QHBoxLayout, QMessageBox, QLabel, QMenu, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox, QPushButton, QDesktopWidget
+                             QGridLayout, QSplashScreen, QHBoxLayout, QMessageBox, QLabel, QProgressDialog, QDialog, QFileDialog, QVBoxLayout, QLineEdit, QDialogButtonBox, QPushButton, QProgressBar
                              )
-from dehazing.dehazing import dehazing
+from dehazing.dehazing import *
 from dehazing.utils import *
 from dehazing.utils import VideoProcessor
 from PyQt5.QtCore import Qt, QTimer, QThread
@@ -108,7 +108,7 @@ class GUI(QMainWindow):
                 self, "Error", "Please, Load an Image First!")
             return
         image = cv2.imread(self.image_path)
-        dehazing_instance = dehazing()
+        dehazing_instance = DehazingCPU()
         self.processed_image = dehazing_instance.image_processing(
             image)
         pixmap = QPixmap(self.image_path)
@@ -256,39 +256,37 @@ class GUI(QMainWindow):
 
         # Create a VideoProcessor object
         video_processor = VideoProcessor(input_video_path, output_video_path)
+        video_processor.update_progress_signal.connect(
+            self.update_progress_dialog)
+        # Create and show a progress dialog
+        self.progress_dialog = QProgressDialog(
+            "Processing Video...", "Cancel", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Video Processing")
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setAutoClose(True)
+        self.progress_dialog.setAutoReset(False)
+        self.progress_dialog.show()
 
         # Start the video processing thread
         video_processor.start_processing()
 
+    def update_progress_dialog(self, progress_percentage):
+        self.progress_dialog.setValue(progress_percentage)
+
+        if progress_percentage == 100:
+            # Close the progress dialog when processing is complete
+            self.progress_dialog.close()
+            # Show a success message
+            QMessageBox.information(
+                self, "Success", "Video saved successfully.")
+
     def switch_frame(self):
         frame_text = self.sender().text()
 
-        # Define common button style
-        common_style = '''
-            background-color: #fff;
-            border: 1px solid gray;
-            border-radius: 10px;
-            padding: 10px 60px;
-            font-size: 13px;
-        '''
-        hover_style = '''
-            background-color: #373030;
-            color: #fff;
-        '''
-
-        if self.active_button:
-            # Reset the style of the previous active button
-            self.active_button.setStyleSheet(common_style)
-
         if frame_text == 'Realtime Dehazing':
             self.stacked_widget.setCurrentIndex(0)
-            self.active_button = self.findChild(QPushButton, "realtime_button")
         elif frame_text == 'Static Dehazing':
             self.stacked_widget.setCurrentIndex(1)
-            self.active_button = self.findChild(QPushButton, "static_button")
-
-        if self.active_button:
-            self.active_button.setStyleSheet(common_style + hover_style)
 
     def show_options_popup(self):
         options_popup = QDialog()

@@ -10,7 +10,7 @@ import math
 from numba import cuda
 
 
-class dehazing:
+class DehazingCPU(object):
     def __init__(self):
         self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
 
@@ -70,7 +70,6 @@ class dehazing:
 
     def image_processing(self, frame):
         I = frame.astype('float64') / 255
-        # I_blurred = cv2.GaussianBlur(I, (5, 5), 0)
         dark = self.DarkChannel(I, 15)
         A = self.EstimateA(I, dark)
         te = self.TransmissionEstimate(I, A, 15)
@@ -79,24 +78,9 @@ class dehazing:
         return J
 
 
-class CameraStream(object):
-    ImageUpdated = pyqtSignal(QImage)
-
-    def __init__(self, src=0):
-        self.capture = cv2.VideoCapture(src)
-        # Start the thread to read frames from the video stream
-        self.thread = Thread(target=self.update, args=())
-        self.thread.daemon = True
-        self.thread.start()
-
-    def update(self):
-
-        # Read the next frame from the stream in a different thread
-        while True:
-            if self.capture.isOpened():
-                (self.status, self.image) = self.capture.read()
-
-            time.sleep(.01)
+class DehazingCuda(object):
+    def __init__(self):
+        self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
 
     @staticmethod
     @cuda.jit
@@ -255,9 +239,9 @@ class CameraStream(object):
 
         return h_res
 
-    def initialize_cuda(self):
+    def initialize_cuda(self, image):
         # Initialize CUDA thread
-        self.rows, self.cols, _ = self.image.shape
+        self.rows, self.cols, _ = image.shape
         self.threadsperblock = (16, 16)
         blockspergrid_x = (
             self.rows + self.threadsperblock[0] - 1) // self.threadsperblock[0]
@@ -265,17 +249,18 @@ class CameraStream(object):
             self.cols + self.threadsperblock[1] - 1) // self.threadsperblock[1]
         self.blockspergrid = (blockspergrid_x, blockspergrid_y)
 
-    def process_frame(self):
+    def image_processing(self, frame):
 
-        self.initialize_cuda()
+        self.initialize_cuda(frame)
         if self.use_cuda:
             # Process the frame
-            image_float = self.image.astype('float64') / 255
+            image_float = frame.astype('float64') / 255
             dark_channel = self.DarkChannel(image_float)
             A = self.EstimateA(image_float, dark_channel)
             TE = self.GaussianTransmissionRefine(
                 self.TransmissionEstimate(image_float, A))
-            self.frame = self.Recover(image_float, TE, A)
+            frame = self.Recover(image_float, TE, A)
+            return frame
 
     def process_and_display_image(self, processed_frame):
         image = (

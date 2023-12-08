@@ -4,8 +4,8 @@ import threading
 from threading import Thread
 import time
 import numpy as np
-from dehazing.dehazing import dehazing
-from PyQt5.QtCore import pyqtSignal, QThread
+from dehazing.dehazing import *
+from PyQt5.QtCore import pyqtSignal, QThread, QObject
 import logging
 
 
@@ -28,9 +28,9 @@ class CameraStream(QThread):
         self.logger = self.setup_logger()
         self.frame_count = 0
         self.start_time = time.time()
+        self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
 
     def take_screenshot(self, frame, prefix=""):
-        # Save the frame as an image file
         screenshot_filename = f"{prefix}_screenshot_{time.time()}.png"
         cv2.imwrite(screenshot_filename, frame)
         print(f"Screenshot saved as {screenshot_filename}")
@@ -62,8 +62,12 @@ class CameraStream(QThread):
 
     def process_and_emit_frame(self, frame):
         try:
-            dehazing_instance = dehazing()
-            frame = dehazing_instance.image_processing(frame)
+            if not self.use_cuda:
+                dehazing_instance = DehazingCPU()
+                frame = dehazing_instance.image_processing(frame)
+            else:
+                dehazing_instance = DehazingCuda()
+                frame = dehazing_instance.image_processing(frame)
             # Calculate FPS
             self.frame_count += 1
             elapsed_time = time.time() - self.start_time
@@ -87,7 +91,7 @@ class CameraStream(QThread):
         self.terminate()
 
 
-class VideoProcessor():
+class VideoProcessor(QObject):
     """
     A class for processing videos, including dehazing the frames and saving the result.
 
@@ -98,6 +102,7 @@ class VideoProcessor():
         frames_processed (int): The number of frames processed.
         status_lock (threading.Lock): A lock for synchronizing status updates.
     """
+    update_progress_signal = pyqtSignal(int)
 
     def __init__(self, input_file, output_file):
         """
@@ -107,15 +112,12 @@ class VideoProcessor():
             input_file (str): The input video file path.
             output_file (str): The output video file path.
         """
+        super(VideoProcessor, self).__init__()
         self.input_file = input_file
         self.output_file = output_file
         self.total_frames = 0
         self.frames_processed = 0
         self.status_lock = threading.Lock()
-        self.progress_signal = None
-
-    def set_progress_signal(self, progress_signal):
-        self.progress_signal = progress_signal
 
     def process_frame(self, frame):
         """
@@ -127,7 +129,7 @@ class VideoProcessor():
         Returns:
             processed_frame: The processed frame.
         """
-        dehazing_instance = dehazing()
+        dehazing_instance = DehazingCPU()
         processed_frame = dehazing_instance.image_processing(frame)
         processed_frame = cv2.convertScaleAbs(processed_frame, alpha=(255.0))
         return processed_frame
@@ -156,20 +158,23 @@ class VideoProcessor():
             futures = []
 
             while True:
+                with self.status_lock:
+                    if self.frames_processed >= self.total_frames:
+                        break  # Break the loop if all frames have been processed
+
                 ret, frame = cap.read()
                 if not ret:
                     break
 
                 future = executor.submit(self.process_frame, frame)
+                future.add_done_callback(self.update_progress)
                 futures.append(future)
 
             for future in futures:
                 processed_frame = future.result()
                 out.write(processed_frame)
-                with self.status_lock:
-                    self.frames_processed += 1
-                    print(
-                        f"Processed {self.frames_processed} of {self.total_frames} frames")
+                print(
+                    f"Processed {self.frames_processed} of {self.total_frames} frames")
 
         cap.release()
         out.release()
@@ -182,3 +187,10 @@ class VideoProcessor():
         """
         processing_thread = threading.Thread(target=self.process_video)
         processing_thread.start()
+
+    def update_progress(self, future):
+        with self.status_lock:
+            self.frames_processed += 1
+            progress_percentage = int(
+                (self.frames_processed / self.total_frames) * 100)
+            self.update_progress_signal.emit(progress_percentage)
