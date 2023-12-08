@@ -367,8 +367,7 @@ class GUI(QMainWindow):
                 config.read('settings.cfg')
                 if 'DEFAULT' not in config:
                     config['DEFAULT'] = {}
-                config['DEFAULT']['input'] = self.input_field.text().replace(
-                    '%', '%%')
+                config['DEFAULT']['input'] = self.input_field.text()
                 with open('settings.cfg', 'w') as configfile:
                     config.write(configfile)
 
@@ -474,20 +473,9 @@ class GUI(QMainWindow):
         if self.start_button.isChecked():
             # Create an instance of the CameraStream class (assuming it's properly initialized)
             self.camera_stream = CameraStream(ip_address)
-
-            # Connect the CameraStream's signal to update the cctv_frame
-            self.camera_stream.ImageUpdated.connect(self.update_cctv_frame)
-
-            # # Create a QThread and move the CameraStream object to that thread
-            self.camera_thread = QThread()
-            self.camera_stream.moveToThread(self.camera_thread)
-
-            # Connect signals to start and stop the thread
-            self.camera_thread.started.connect(self.camera_stream.run)
-            self.camera_thread.finished.connect(self.camera_stream.stop)
-
-            # Start the camera thread
             self.camera_stream.start()
+            # Connect the CameraStream's signal to update the cctv_frame
+            self.camera_stream.frame_processed.connect(self.update_cctv_frame)
 
             self.start_button.setText("Stop")
         else:
@@ -561,6 +549,8 @@ class GUI(QMainWindow):
         self.start_button.toggled.connect(self.start_camera_stream)
 
         self.screenshot_button = QPushButton("Screenshot")
+        # self.screenshot_button.clicked.connect(
+        # self.camera_stream.take_screenshot)
 
         # Create the settings button
         manage_camera_button = QPushButton()
