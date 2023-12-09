@@ -365,7 +365,8 @@ class GUI(QMainWindow):
                 config.read('settings.cfg')
                 if 'DEFAULT' not in config:
                     config['DEFAULT'] = {}
-                config['DEFAULT']['input'] = self.input_field.text()
+                config['DEFAULT']['input'] = self.input_field.text().replace(
+                    '%', '%%')
                 with open('settings.cfg', 'w') as configfile:
                     config.write(configfile)
 
@@ -479,7 +480,6 @@ class GUI(QMainWindow):
             # Stop the camera stream if the button is unchecked
             self.start_button.setText("Start")
             if hasattr(self, 'camera_stream'):
-                # self.camera_stream.status = False
                 self.camera_stream.stop()
 
     @pyqtSlot(np.ndarray)
