@@ -8,6 +8,7 @@ import cv2
 import time
 import math
 from numba import cuda
+from scipy.ndimage import gaussian_filter
 
 
 class DehazingCPU(object):
@@ -51,13 +52,9 @@ class DehazingCPU(object):
         transmission = 1 - omega * self.DarkChannel(im3, sz)
         return transmission
 
-    def GaussianTransmissionRefine(self, et):
-        r = 89  # radius of the Gaussian filter
+    def GaussianTransmissionRefine(self, et, sigma=2):
 
-        # Apply Gaussian filtering to the transmission map
-        t = cv2.GaussianBlur(et, (r, r), 0)
-
-        return t
+        return gaussian_filter(et, sigma=sigma)
 
     def Recover(self, im, t, A, tx=0.1):
         res = np.empty(im.shape, im.dtype)
@@ -94,20 +91,16 @@ class DehazingCuda(object):
 
             dark_channel[row, col] = min_value
 
-    def DarkChannel(self, image):
-
+    def DarkChannel(self, image, patch_size):
         d_dark_channel = cuda.to_device(
             np.zeros((self.rows, self.cols), dtype=np.float64))
         d_image = cuda.to_device(image)
-
         self.dark_channel_cuda[self.blockspergrid,
                                self.threadsperblock](d_image, d_dark_channel)
-
         h_dark_channel = d_dark_channel.copy_to_host()
-
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_RECT, (patch_size, patch_size))
         dark_channel = cv2.erode(h_dark_channel, kernel)
-
         return dark_channel
 
     def dark_channel_cpu(self, image):
@@ -152,66 +145,18 @@ class DehazingCuda(object):
         A = sumA / num
         return A
 
-    def TransmissionEstimate(self, im, A):
+    def TransmissionEstimate(self, im, A, patch_size):
+
         omega = 0.95
         im3 = np.empty(im.shape, im.dtype)
         for ind in range(0, 3):
             im3[:, :, ind] = im[:, :, ind] / A[0, ind]
-
-        transmission = 1 - omega * self.DarkChannel(im3)
+        transmission = 1 - omega * self.DarkChannel(im3, patch_size)
         return transmission
 
-    # def TransmissionEstimate(self, image, Alight):
-    #     rows, cols, _ = image.shape
-    #     radius = 7
-    #     omega = 0.95
-    #     tran = np.empty(image.shape, image.dtype)
-    #     for i in range(self.rows):
-    #         for j in range(self.cols):
-    #             rmin = max(0, i - radius)
-    #             rmax = min(i + radius, self.rows - 1)
-    #             cmin = max(0, j - radius)
-    #             cmax = min(j + radius, self.cols - 1)
-    #             pixel = (image[rmin:rmax + 1, cmin:cmax + 1] / Alight).min()
-    #             tran[i, j] = 1. - omega * pixel
-    #     return tran
+    def GaussianTransmissionRefine(self, et, sigma=2):
 
-    def GaussianTransmissionRefine(self, et):
-        r = 89  # radius of the Gaussian filter
-
-        # Apply Gaussian filtering to the transmission map
-        t = cv2.GaussianBlur(et, (r, r), 0)
-
-        return t
-
-    # @staticmethod
-    # @cuda.jit
-    # def gaussian_transmission_refine_cuda(et, t):
-    #     row, col = cuda.grid(2)
-    #
-    #     if row < et.shape[0] and col < et.shape[1]:
-    #         r = 4  # radius of the Gaussian filter
-    #         t[row, col] = et[row, col]
-    #
-    #         # Apply Gaussian filter to refine transmission map
-    #         for i in range(-r, r + 1):
-    #             for j in range(-r, r + 1):
-    #                 if row + i >= 0 and row + i < et.shape[0] and col + j >= 0 and col + j < et.shape[1]:
-    #                     t[row, col] += et[row + i, col + j]
-    #
-    #         t[row, col] /= (2 * r + 1) ** 2
-    #
-    # def GaussianTransmissionRefine(self, et):
-    #
-    #     d_et = cuda.to_device(et)
-    #     d_t = cuda.to_device(np.zeros_like(et, dtype=np.float64))
-    #
-    #     self.gaussian_transmission_refine_cuda[self.blockspergrid, self.threadsperblock](d_et, d_t)
-    #
-    #     h_t = np.empty(shape=d_t.shape, dtype=d_t.dtype)
-    #     d_t.copy_to_host(h_t)
-    #
-    #     return h_t
+        return gaussian_filter(et, sigma=sigma)
 
     @staticmethod
     @cuda.jit
@@ -255,39 +200,9 @@ class DehazingCuda(object):
         if self.use_cuda:
             # Process the frame
             image_float = frame.astype('float64') / 255
-            dark_channel = self.DarkChannel(image_float)
+            dark_channel = self.DarkChannel(image_float, 20)
             A = self.EstimateA(image_float, dark_channel)
             TE = self.GaussianTransmissionRefine(
-                self.TransmissionEstimate(image_float, A))
+                self.TransmissionEstimate(image_float, A, 2))
             frame = self.Recover(image_float, TE, A)
             return frame
-
-    def process_and_display_image(self, processed_frame):
-        image = (
-            processed_frame * 255.0).clip(0, 255).astype(np.uint8)
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        qimage = QImage(rgb_image.data, rgb_image.shape[1], rgb_image.shape[0],
-                        rgb_image.shape[1] * 3, QImage.Format_RGB888)
-        return qimage
-
-    def show_frame(self):
-
-        # Initialize frame counter and FPS variables
-        frame_count = 0
-        start_time = time.time()
-
-        dehazed_frame = self.process_frame()
-
-        # Calculate FPS
-        frame_count += 1
-        elapsed_time = time.time() - start_time
-        fps = math.floor(frame_count / elapsed_time)
-        print(fps)
-        self.ImageUpdated.emit(self.process_and_display_image(dehazed_frame))
-        # # Display dehazed frame
-        # cv2.imshow('Frame', self.frame)
-        # key = cv2.waitKey(1)
-        # if key == ord('q'):
-        #     self.capture.release()
-        #     cv2.destroyAllWindows()
-        #     exit(1)
