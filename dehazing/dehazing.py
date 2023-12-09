@@ -11,6 +11,7 @@ from numba import cuda
 from scipy.ndimage import gaussian_filter
 
 
+
 class DehazingCPU(object):
     def __init__(self):
         self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
@@ -52,8 +53,8 @@ class DehazingCPU(object):
         transmission = 1 - omega * self.DarkChannel(im3, sz)
         return transmission
 
-    def GaussianTransmissionRefine(self, et, sigma=2):
 
+    def GaussianTransmissionRefine(self, et, sigma=2):
         return gaussian_filter(et, sigma=sigma)
 
     def Recover(self, im, t, A, tx=0.1):
@@ -90,7 +91,7 @@ class DehazingCuda(object):
                 min_value = min(min_value, image[row, col, channel])
 
             dark_channel[row, col] = min_value
-
+            
     def DarkChannel(self, image, patch_size):
         d_dark_channel = cuda.to_device(
             np.zeros((self.rows, self.cols), dtype=np.float64))
@@ -101,6 +102,7 @@ class DehazingCuda(object):
         kernel = cv2.getStructuringElement(
             cv2.MORPH_RECT, (patch_size, patch_size))
         dark_channel = cv2.erode(h_dark_channel, kernel)
+
         return dark_channel
 
     def dark_channel_cpu(self, image):
@@ -151,12 +153,25 @@ class DehazingCuda(object):
         im3 = np.empty(im.shape, im.dtype)
         for ind in range(0, 3):
             im3[:, :, ind] = im[:, :, ind] / A[0, ind]
+
         transmission = 1 - omega * self.DarkChannel(im3, patch_size)
         return transmission
 
     def GaussianTransmissionRefine(self, et, sigma=2):
 
         return gaussian_filter(et, sigma=sigma)
+
+        transmission = 1 - omega * self.DarkChannel(im3)
+        return transmission
+
+
+    def GaussianTransmissionRefine(self, et):
+        r = 89  # radius of the Gaussian filter
+
+        # Apply Gaussian filtering to the transmission map
+        t = cv2.GaussianBlur(et, (r, r), 0)
+
+        return t
 
     @staticmethod
     @cuda.jit

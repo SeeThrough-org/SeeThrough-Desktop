@@ -46,7 +46,6 @@ class CameraStream(QThread):
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(formatter)
-
         logger.addHandler(ch)
 
         return logger
@@ -78,6 +77,7 @@ class CameraStream(QThread):
             else:
                 dehazing_instance = DehazingCuda()
                 self.frame = dehazing_instance.image_processing(frame)
+                
             with self.thread_lock:
                 # Calculate FPS
                 self.frame_count += 1
@@ -86,6 +86,7 @@ class CameraStream(QThread):
                 self.logger.debug(f"FPS: {fps}")
 
                 self.frame_processed.emit(self.frame)
+
         except Exception as e:
             self.logger.error(f"Error processing frame: {e}")
 
