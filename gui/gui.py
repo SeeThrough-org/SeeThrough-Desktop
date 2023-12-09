@@ -474,7 +474,6 @@ class GUI(QMainWindow):
             self.camera_stream.start()
             # Connect the CameraStream's signal to update the cctv_frame
             self.camera_stream.frame_processed.connect(self.update_cctv_frame)
-
             self.start_button.setText("Stop")
         else:
             # Stop the camera stream if the button is unchecked
@@ -487,7 +486,6 @@ class GUI(QMainWindow):
     def update_cctv_frame(self, cv_img):
         scaled_image = (
             cv_img * 255.0).clip(0, 255).astype(np.uint8)
-        # self.take_screenshot(scaled_image, "Dehazed")
         rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
         qimage = QImage(rgb_image.data, rgb_image.shape[1], rgb_image.shape[0],
                         rgb_image.shape[1] * 3, QImage.Format_RGB888)
@@ -501,6 +499,17 @@ class GUI(QMainWindow):
         # Update the camera feed label with the scaled pixmap
         self.cctv_frame.setPixmap(pixmap)
         self.cctv_frame.setAlignment(Qt.AlignCenter)
+
+    def take_screenshot(self):
+        # Capture the current frames
+        original_frame = self.camera_stream.img
+        processed_frame = self.camera_stream.frame
+        timestamp = time.time()
+        # Save the original and processed frames as images
+        cv2.imwrite(f"original_screenshot_{timestamp}.png", original_frame)
+        cv2.imwrite(
+            f"processed_screenshot_{timestamp}.png", processed_frame * 255)
+        print("Screenshots saved successfully.")
 
     def realtime_frames(self):
         # Create widget
@@ -547,8 +556,8 @@ class GUI(QMainWindow):
         self.start_button.toggled.connect(self.start_camera_stream)
 
         self.screenshot_button = QPushButton("Screenshot")
-        # self.screenshot_button.clicked.connect(
-        # self.camera_stream.take_screenshot)
+        self.screenshot_button.clicked.connect(
+            self.take_screenshot)
 
         # Create the settings button
         manage_camera_button = QPushButton()

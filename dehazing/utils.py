@@ -16,6 +16,7 @@ class CameraStream(QThread):
         super(CameraStream, self).__init__()
         try:
             self.capture = cv2.VideoCapture(url)
+            self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             if not self.capture.isOpened():
                 raise ValueError(
                     f"Error: Unable to open video capture from {self.url}")
@@ -29,11 +30,6 @@ class CameraStream(QThread):
         self.frame_count = 0
         self.start_time = time.time()
         self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
-
-    def take_screenshot(self, frame, prefix=""):
-        screenshot_filename = f"{prefix}_screenshot_{time.time()}.png"
-        cv2.imwrite(screenshot_filename, frame)
-        print(f"Screenshot saved as {screenshot_filename}")
 
     def setup_logger(self):
         logger = logging.getLogger("CameraStreamLogger")
@@ -52,11 +48,11 @@ class CameraStream(QThread):
     def update(self):
         while True:
             if self.capture.isOpened():
-                self.status, self.frame = self.capture.read()
+                self.status, self.img = self.capture.read()
             else:
                 self.status = False  # Ensure status is False if the capture is not opened
             if self.status:
-                self.process_and_emit_frame(self.frame)
+                self.process_and_emit_frame(self.img)
             else:
                 break
 
@@ -64,22 +60,22 @@ class CameraStream(QThread):
         try:
             if not self.use_cuda:
                 dehazing_instance = DehazingCPU()
-                frame = dehazing_instance.image_processing(frame)
+                self.frame = dehazing_instance.image_processing(frame)
             else:
                 dehazing_instance = DehazingCuda()
-                frame = dehazing_instance.image_processing(frame)
+                self.frame = dehazing_instance.image_processing(frame)
+
             # Calculate FPS
             self.frame_count += 1
             elapsed_time = time.time() - self.start_time
             fps = self.frame_count / elapsed_time
             self.logger.debug(f"FPS: {fps}")
 
-            self.frame_processed.emit(frame)
-
+            self.frame_processed.emit(self.frame)
         except Exception as e:
             self.logger.error(f"Error processing frame: {e}")
 
-    def run(self) -> None:
+    def start(self) -> None:
         self.thread = Thread(target=self.update, args=())
         self.thread.daemon = True
         self.thread.start()

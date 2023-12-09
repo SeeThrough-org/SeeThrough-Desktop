@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSlot
 from threading import Lock, Thread
@@ -144,12 +144,16 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(self.central_widget)
         layout.addWidget(self.video_label)
 
-        self.stream = CameraStream('http://192.168.1.9:4747/video?1280x720')
+        self.stream = CameraStream('http://192.168.1.15:4747/video?1280x720')
         self.stream.frame_processed.connect(self.display_frame)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
         self.timer.start(30)  # Set the timeout interval in milliseconds
+
+        self.screenshot_button = QPushButton("Take Screenshot", self)
+        self.screenshot_button.clicked.connect(self.take_screenshot)
+        layout.addWidget(self.screenshot_button)
 
     @pyqtSlot(np.ndarray)
     def display_frame(self, frame):
@@ -169,6 +173,17 @@ class MainWindow(QMainWindow):
 
         # Display the QImage in the QLabel
         self.video_label.setPixmap(pixmap)
+
+    def take_screenshot(self):
+        # Capture the current frames
+        original_frame = self.stream.img
+        processed_frame = self.stream.frame
+        timestamp = time.time()
+        # Save the original and processed frames as images
+        cv2.imwrite(f"original_screenshot_{timestamp}.png", original_frame)
+        cv2.imwrite(
+            f"processed_screenshot_{timestamp}.png", processed_frame * 255)
+        print("Screenshots saved successfully.")
 
     def update_frame(self):
         self.stream.show_frame()
