@@ -1,74 +1,93 @@
 from concurrent.futures import ThreadPoolExecutor
-import sys
 import cv2
 import threading
 from threading import Thread
 import time
 import numpy as np
-from dehazing.dehazing import dehazing
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QMutex, QWaitCondition, QSize,  QMutex, QMutexLocker
-from PyQt5.QtGui import QImage, QPixmap
-from threading import Lock
-import multiprocessing
+from dehazing.dehazing import *
+from PyQt5.QtCore import pyqtSignal, QThread, QObject
+import logging
 
 
 class CameraStream(QThread):
-    ImageUpdated = pyqtSignal(QImage)
+    frame_processed = pyqtSignal(np.ndarray)
 
     def __init__(self, url) -> None:
         super(CameraStream, self).__init__()
-        self.capture = cv2.VideoCapture(url)
+        try:
+            self.capture = cv2.VideoCapture(url)
+            self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if not self.capture.isOpened():
+                raise ValueError(
+                    f"Error: Unable to open video capture from {self.url}")
+        except Exception as e:
+            print(f"Error initializing video capture: {e}")
+            self.status = False
         self.status = None
         self.frame_count = 0
         self.start_time = time.time()
-        self.capture_mutex = QMutex()  # Mutex for VideoCapture
-        self.mutex = QMutex()  # Mutex for other shared variables
+        self.logger = self.setup_logger()
+        self.frame_count = 0
+        self.start_time = time.time()
+        self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
+
+    def setup_logger(self):
+        logger = logging.getLogger("CameraStreamLogger")
+        logger.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s')
+
+        # Log to console
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+
+        return logger
 
     def update(self):
         while True:
-            with QMutexLocker(self.capture_mutex):
-                if self.capture.isOpened():
-                    self.status, frame = self.capture.read()
-                else:
-                    self.status = False  # Ensure status is False if the capture is not opened
-
+            if self.capture.isOpened():
+                self.status, self.img = self.capture.read()
+            else:
+                self.status = False  # Ensure status is False if the capture is not opened
             if self.status:
-                dehazing_instance = dehazing()
-                dehazed_frame = dehazing_instance.image_processing(frame)
-
-                with QMutexLocker(self.mutex):  # Acquire the mutex for shared variables
-                    self.frame_count += 1
-                    elapsed_time = time.time() - self.start_time
-                    fps = self.frame_count / elapsed_time
-                    print(f"Current FPS: {fps:.2f}")
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    cv2.putText(
-                        dehazed_frame, f"FPS: {fps:.2f}", (10, 30), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
-                    scaled_image = (
-                        dehazed_frame * 255.0).clip(0, 255).astype(np.uint8)
-                    rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
-                    qimage = QImage(rgb_image.data, rgb_image.shape[1], rgb_image.shape[0],
-                                    rgb_image.shape[1] * 3, QImage.Format_RGB888)
-
-                    self.ImageUpdated.emit(qimage)
+                self.process_and_emit_frame(self.img)
             else:
                 break
 
-            time.sleep(0.01)  # Adjust this delay as needed
+    def process_and_emit_frame(self, frame):
+        try:
+            if not self.use_cuda:
+                dehazing_instance = DehazingCPU()
+                self.frame = dehazing_instance.image_processing(frame)
+            else:
+                dehazing_instance = DehazingCuda()
+                self.frame = dehazing_instance.image_processing(frame)
 
-    def run(self) -> None:
+            # Calculate FPS
+            self.frame_count += 1
+            elapsed_time = time.time() - self.start_time
+            fps = self.frame_count / elapsed_time
+            self.logger.debug(f"FPS: {fps}")
+
+            self.frame_processed.emit(self.frame)
+        except Exception as e:
+            self.logger.error(f"Error processing frame: {e}")
+
+    def start(self) -> None:
         self.thread = Thread(target=self.update, args=())
         self.thread.daemon = True
         self.thread.start()
 
     def stop(self) -> None:
-        with QMutexLocker(self.capture_mutex):
+        if self.capture is not None:
             self.capture.release()
         cv2.destroyAllWindows()
         self.terminate()
 
 
-class VideoProcessor():
+class VideoProcessor(QObject):
     """
     A class for processing videos, including dehazing the frames and saving the result.
 
@@ -79,6 +98,7 @@ class VideoProcessor():
         frames_processed (int): The number of frames processed.
         status_lock (threading.Lock): A lock for synchronizing status updates.
     """
+    update_progress_signal = pyqtSignal(int)
 
     def __init__(self, input_file, output_file):
         """
@@ -88,15 +108,12 @@ class VideoProcessor():
             input_file (str): The input video file path.
             output_file (str): The output video file path.
         """
+        super(VideoProcessor, self).__init__()
         self.input_file = input_file
         self.output_file = output_file
         self.total_frames = 0
         self.frames_processed = 0
         self.status_lock = threading.Lock()
-        self.progress_signal = None
-
-    def set_progress_signal(self, progress_signal):
-        self.progress_signal = progress_signal
 
     def process_frame(self, frame):
         """
@@ -108,7 +125,7 @@ class VideoProcessor():
         Returns:
             processed_frame: The processed frame.
         """
-        dehazing_instance = dehazing()
+        dehazing_instance = DehazingCPU()
         processed_frame = dehazing_instance.image_processing(frame)
         processed_frame = cv2.convertScaleAbs(processed_frame, alpha=(255.0))
         return processed_frame
@@ -137,20 +154,23 @@ class VideoProcessor():
             futures = []
 
             while True:
+                with self.status_lock:
+                    if self.frames_processed >= self.total_frames:
+                        break  # Break the loop if all frames have been processed
+
                 ret, frame = cap.read()
                 if not ret:
                     break
 
                 future = executor.submit(self.process_frame, frame)
+                future.add_done_callback(self.update_progress)
                 futures.append(future)
 
             for future in futures:
                 processed_frame = future.result()
                 out.write(processed_frame)
-                with self.status_lock:
-                    self.frames_processed += 1
-                    print(
-                        f"Processed {self.frames_processed} of {self.total_frames} frames")
+                print(
+                    f"Processed {self.frames_processed} of {self.total_frames} frames")
 
         cap.release()
         out.release()
@@ -163,3 +183,10 @@ class VideoProcessor():
         """
         processing_thread = threading.Thread(target=self.process_video)
         processing_thread.start()
+
+    def update_progress(self, future):
+        with self.status_lock:
+            self.frames_processed += 1
+            progress_percentage = int(
+                (self.frames_processed / self.total_frames) * 100)
+            self.update_progress_signal.emit(progress_percentage)
