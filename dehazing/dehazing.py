@@ -11,11 +11,7 @@ from numba import cuda
 from scipy.ndimage import gaussian_filter
 
 
-
 class DehazingCPU(object):
-    def __init__(self):
-        self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
-
     def DarkChannel(self, im, sz):
         b, g, r = cv2.split(im)
         dc = cv2.min(cv2.min(r, g), b)  # Use CPU min function
@@ -52,7 +48,6 @@ class DehazingCPU(object):
 
         transmission = 1 - omega * self.DarkChannel(im3, sz)
         return transmission
-
 
     def GaussianTransmissionRefine(self, et, sigma=2):
         return gaussian_filter(et, sigma=sigma)
@@ -91,7 +86,7 @@ class DehazingCuda(object):
                 min_value = min(min_value, image[row, col, channel])
 
             dark_channel[row, col] = min_value
-            
+
     def DarkChannel(self, image, patch_size):
         d_dark_channel = cuda.to_device(
             np.zeros((self.rows, self.cols), dtype=np.float64))
@@ -161,18 +156,6 @@ class DehazingCuda(object):
 
         return gaussian_filter(et, sigma=sigma)
 
-        transmission = 1 - omega * self.DarkChannel(im3)
-        return transmission
-
-
-    def GaussianTransmissionRefine(self, et):
-        r = 89  # radius of the Gaussian filter
-
-        # Apply Gaussian filtering to the transmission map
-        t = cv2.GaussianBlur(et, (r, r), 0)
-
-        return t
-
     @staticmethod
     @cuda.jit
     def recover_cuda(im, t, A, res):
@@ -212,12 +195,11 @@ class DehazingCuda(object):
     def image_processing(self, frame):
 
         self.initialize_cuda(frame)
-        if self.use_cuda:
-            # Process the frame
-            image_float = frame.astype('float64') / 255
-            dark_channel = self.DarkChannel(image_float, 20)
-            A = self.EstimateA(image_float, dark_channel)
-            TE = self.GaussianTransmissionRefine(
-                self.TransmissionEstimate(image_float, A, 2))
-            frame = self.Recover(image_float, TE, A)
-            return frame
+        # Process the frame
+        image_float = frame.astype('float64') / 255
+        dark_channel = self.DarkChannel(image_float, 20)
+        A = self.EstimateA(image_float, dark_channel)
+        TE = self.GaussianTransmissionRefine(
+            self.TransmissionEstimate(image_float, A, 2))
+        frame = self.Recover(image_float, TE, A)
+        return frame

@@ -77,7 +77,7 @@ class CameraStream(QThread):
             else:
                 dehazing_instance = DehazingCuda()
                 self.frame = dehazing_instance.image_processing(frame)
-                
+
             with self.thread_lock:
                 # Calculate FPS
                 self.frame_count += 1
