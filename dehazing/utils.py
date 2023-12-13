@@ -72,6 +72,7 @@ class CameraStream(QThread):
             if self.status:
                 future = self.executor.submit(self.process_and_emit_frame, self.img)
                 self.logger.debug(f"total thread: {CPUThread}")   
+                self.logger.debug(f"submit: {future}")   
             else:
                 break
 
