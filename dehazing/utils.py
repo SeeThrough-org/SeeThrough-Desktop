@@ -17,6 +17,7 @@ class ThreadCal():
 
 class CameraStream(QThread):
     frame_processed = pyqtSignal(np.ndarray)
+    current_process_id = psutil.Process()
 
     def __init__(self, url) -> None:
         super(CameraStream, self).__init__()
@@ -31,10 +32,12 @@ class CameraStream(QThread):
         self.width = 640
         self.height = 480
         self.inter = cv2.INTER_AREA
+        self.current_process_id.nice(psutil.HIGH_PRIORITY_CLASS)
 
     def init_video_capture(self):
         try:
-            self.capture = cv2.VideoCapture(self.url)
+            self.capture = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+            #self.capture = cv2.VideoCapture(cv2.CAP_DSHOW) #wired camera
             if not self.capture.isOpened():
                 raise ValueError(
                     f"Error: Unable to open video capture from {self.url}")
@@ -43,6 +46,7 @@ class CameraStream(QThread):
             self.status = False
 
     def setup_logger(self):
+        #logging.disable(logging.CRITICAL) #test if logging make perf bad (on build)
         logger = logging.getLogger("CameraStreamLogger")
         logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter(
@@ -56,10 +60,9 @@ class CameraStream(QThread):
 
         return logger
 
-    def update(self):
-        #threads_count = psutil.cpu_count() / psutil.cpu_count(logical=False)
+    def update(self): #TODO resize frame by 35%? rip image quality
         CPUThread = ThreadCal.EnumThread()
-        self.executor = ThreadPoolExecutor(max_workers=CPUThread) # 
+        self.executor = ThreadPoolExecutor(max_workers=CPUThread) #
         while True:
             if self.capture.isOpened():
                 self.status, frame = self.capture.read()
@@ -86,13 +89,11 @@ class CameraStream(QThread):
                 self.frame = dehazing_instance.image_processing(frame)
 
             with self.thread_lock:
+                self.frame_processed.emit(self.frame)
                 # Calculate FPS
-                self.frame_count += 1
-                elapsed_time = time.time() - self.start_time
-                fps = self.frame_count / elapsed_time
+                fps = self.capture.get(cv2.CAP_PROP_FPS)
                 self.logger.debug(f"FPS: {fps}")
 
-                self.frame_processed.emit(self.frame)
 
         except Exception as e:
             self.logger.error(f"Error processing frame: {e}")
