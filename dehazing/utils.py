@@ -7,7 +7,13 @@ import numpy as np
 from dehazing.dehazing import *
 from PyQt5.QtCore import pyqtSignal, QThread, QObject
 import logging
+import psutil
 
+class ThreadCal():
+    def EnumThread():
+        #idk how python works walang data type asdasdas HAHAHA
+        threads_count = psutil.cpu_count() / psutil.cpu_count(logical=False)
+        return threads_count
 
 class CameraStream(QThread):
     frame_processed = pyqtSignal(np.ndarray)
@@ -51,6 +57,9 @@ class CameraStream(QThread):
         return logger
 
     def update(self):
+        #threads_count = psutil.cpu_count() / psutil.cpu_count(logical=False)
+        CPUThread = ThreadCal.EnumThread()
+        self.executor = ThreadPoolExecutor(max_workers=CPUThread) # 
         while True:
             if self.capture.isOpened():
                 self.status, frame = self.capture.read()
@@ -61,11 +70,8 @@ class CameraStream(QThread):
             else:
                 self.status = False  # Ensure status is False if the capture is not opened
             if self.status:
-                # Process the frame in a separate thread
-                process_thread = Thread(
-                    target=self.process_and_emit_frame, args=(self.img,))
-                process_thread.daemon = True
-                process_thread.start()
+                future = self.executor.submit(self.process_and_emit_frame, self.img)
+                self.logger.debug(f"total thread: {CPUThread}")   
             else:
                 break
 
@@ -165,7 +171,8 @@ class VideoProcessor(QObject):
             self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Use ThreadPoolExecutor to parallelize frame processing
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        CPUThread = ThreadCal.EnumThread()
+        with ThreadPoolExecutor(max_workers=CPUThread) as executor:
             futures = []
 
             while True:
