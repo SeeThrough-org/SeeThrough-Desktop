@@ -8,12 +8,17 @@ from dehazing.dehazing import *
 from PyQt5.QtCore import pyqtSignal, QThread, QObject
 import logging
 import psutil
+from queue import Queue
 
 class ThreadCal():
     def EnumThread():
         #idk how python works walang data type asdasdas HAHAHA
         threads_count = psutil.cpu_count() / psutil.cpu_count(logical=False)
         return threads_count
+    
+def decode_fourcc(v):
+    v = int(v)
+    return "".join([chr((v >> 8 * i) & 0xFF) for i in range(4)])
 
 class CameraStream(QThread):
     frame_processed = pyqtSignal(np.ndarray)
@@ -29,15 +34,18 @@ class CameraStream(QThread):
         self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
         self.thread_lock = Lock()
         self.init_video_capture()
-        self.width = 640
-        self.height = 480
+        self.width = 1280
+        self.height = 720
         self.inter = cv2.INTER_AREA
         self.current_process_id.nice(psutil.HIGH_PRIORITY_CLASS)
 
     def init_video_capture(self):
         try:
-            self.capture = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
             #self.capture = cv2.VideoCapture(cv2.CAP_DSHOW) #wired camera
+            self.capture = cv2.VideoCapture(self.url)
+            # oldfourcc = decode_fourcc(self.capture.get(cv2.CAP_PROP_FOURCC))
+            # print(oldfourcc)
+            self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"h264"))
             if not self.capture.isOpened():
                 raise ValueError(
                     f"Error: Unable to open video capture from {self.url}")
@@ -57,19 +65,16 @@ class CameraStream(QThread):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(formatter)
         logger.addHandler(ch)
-
         return logger
 
-    def update(self): #TODO resize frame by 35%? rip image quality
+    def update(self):
         CPUThread = ThreadCal.EnumThread()
         self.executor = ThreadPoolExecutor(max_workers=CPUThread) #
         while True:
             if self.capture.isOpened():
+                self.capture.grab()
                 self.status, frame = self.capture.read()
-                self.hazy = cv2.resize(
-                    frame, (self.width, self.height), self.inter)
-                self.img = cv2.resize(
-                    frame, (self.width, self.height), self.inter)
+                self.img = frame
             else:
                 self.status = False  # Ensure status is False if the capture is not opened
             if self.status:
@@ -89,13 +94,15 @@ class CameraStream(QThread):
                 self.frame = dehazing_instance.image_processing(frame)
 
             with self.thread_lock:
+                # frame_count += 1
+                # elapsed_time = time.time() - self.start_time
+                # fps = frame_count / elapsed_time
                 self.frame_processed.emit(self.frame)
-                # Calculate FPS
+                #Calculate FPS
                 fps = self.capture.get(cv2.CAP_PROP_FPS)
                 self.logger.debug(f"FPS: {fps}")
-
-
         except Exception as e:
+            self.capture.release()
             self.logger.error(f"Error processing frame: {e}")
 
     def start(self) -> None:
