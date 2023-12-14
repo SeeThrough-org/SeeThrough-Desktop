@@ -108,6 +108,7 @@ class CameraStream(QThread):
         self.thread.start()
 
     def stop(self) -> None:
+        time.sleep(2)
         with self.thread_lock:
             self.stop_thread = True  # Set the flag to stop the threads
             if self.thread is not None:
