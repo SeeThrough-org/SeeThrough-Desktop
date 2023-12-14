@@ -56,6 +56,8 @@ class CameraStream(QThread):
         while not self.stop_thread:
             if self.capture.isOpened():
                 self.capture.grab()
+            else:
+                self.stop_thread = True
 
     def update(self):
         grab_thread = Thread(target=self.grab_frames, args=())
@@ -63,6 +65,7 @@ class CameraStream(QThread):
         grab_thread.start()
 
         while not self.stop_thread:
+
             if self.capture.isOpened():
                 self.status, frame = self.capture.retrieve()
                 if self.status:
@@ -91,14 +94,11 @@ class CameraStream(QThread):
                 self.frame = dehazing_instance.image_processing(frame)
 
             with self.thread_lock:
-                # Calculate FPS
                 self.frame_count += 1
                 elapsed_time = time.time() - self.start_time
                 fps = self.frame_count / elapsed_time
                 self.logger.debug(f"FPS: {fps}")
-
                 self.frame_processed.emit(self.frame)
-
         except Exception as e:
             self.logger.error(f"Error processing frame: {e}")
 
@@ -108,11 +108,13 @@ class CameraStream(QThread):
         self.thread.start()
 
     def stop(self) -> None:
-        self.stop_thread = True  # Set the flag to stop the threads
-        if self.capture is not None:
-            self.capture.release()
-        cv2.destroyAllWindows()
-        self.terminate()
+        with self.thread_lock:
+            self.stop_thread = True  # Set the flag to stop the threads
+            if self.thread is not None:
+                self.thread.join()
+            if self.capture is not None:
+                self.capture.release()
+            self.terminate()
 
 
 class VideoProcessor(QObject):
