@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
 import cv2
-import threading
 from threading import Thread, Lock
 import time
 import numpy as np
@@ -8,20 +7,11 @@ from dehazing.dehazing import *
 from PyQt5.QtCore import pyqtSignal, QThread, QObject
 import logging
 import psutil
+from multiprocessing import Manager
 
-class ThreadCal():
-    def EnumThread():
-        #idk how python works walang data type asdasdas HAHAHA
-        threads_count = psutil.cpu_count() / psutil.cpu_count(logical=False)
-        return threads_count
-    #check what cap is using
-def decode_fourcc(v):
-    v = int(v)
-    return "".join([chr((v >> 8 * i) & 0xFF) for i in range(4)])
 
 class CameraStream(QThread):
     frame_processed = pyqtSignal(np.ndarray)
-    current_process_id = psutil.Process()
 
     def __init__(self, url) -> None:
         super(CameraStream, self).__init__()
@@ -33,18 +23,14 @@ class CameraStream(QThread):
         self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
         self.thread_lock = Lock()
         self.init_video_capture()
-        self.width = 1280
-        self.height = 720
+        self.width = 640
+        self.height = 480
         self.inter = cv2.INTER_AREA
-        self.current_process_id.nice(psutil.HIGH_PRIORITY_CLASS)
+        self.stop_thread = False  # Flag to signal the threads to stop
 
     def init_video_capture(self):
         try:
-            #self.capture = cv2.VideoCapture(cv2.CAP_DSHOW) #wired camera
             self.capture = cv2.VideoCapture(self.url)
-            # oldfourcc = decode_fourcc(self.capture.get(cv2.CAP_PROP_FOURCC))
-            # print(oldfourcc)
-            # self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"h264"))
             if not self.capture.isOpened():
                 raise ValueError(
                     f"Error: Unable to open video capture from {self.url}")
@@ -53,7 +39,6 @@ class CameraStream(QThread):
             self.status = False
 
     def setup_logger(self):
-        #logging.disable(logging.CRITICAL) #test if logging make perf bad (on build)
         logger = logging.getLogger("CameraStreamLogger")
         logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter(
@@ -64,24 +49,37 @@ class CameraStream(QThread):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(formatter)
         logger.addHandler(ch)
+
         return logger
 
-    def update(self):
-        CPUThread = ThreadCal.EnumThread()
-        self.executor = ThreadPoolExecutor(max_workers=CPUThread) #
-        while True:
+    def grab_frames(self):
+        while not self.stop_thread:
             if self.capture.isOpened():
                 self.capture.grab()
-                self.status, frame = self.capture.read()
-                self.img = frame
-            else:
-                self.status = False  # Ensure status is False if the capture is not opened
-            if self.status:
-                future = self.executor.submit(self.process_and_emit_frame, self.img)
-                self.logger.debug(f"total thread: {CPUThread}")   
-                self.logger.debug(f"submit: {future}")   
-            else:
-                break
+
+    def update(self):
+        grab_thread = Thread(target=self.grab_frames, args=())
+        grab_thread.daemon = True
+        grab_thread.start()
+
+        while not self.stop_thread:
+            if self.capture.isOpened():
+                self.status, frame = self.capture.retrieve()
+                if self.status:
+
+                    self.img = cv2.resize(
+                        frame, (self.width, self.height), self.inter)
+
+                    # Process the frame in a separate thread
+                    process_thread = Thread(
+                        target=self.process_and_emit_frame, args=(self.img,))
+                    process_thread.daemon = True
+                    process_thread.start()
+
+                else:
+                    self.status = False  # Ensure status is False if the capture is not opened
+
+        grab_thread.join()
 
     def process_and_emit_frame(self, frame):
         try:
@@ -89,19 +87,19 @@ class CameraStream(QThread):
                 dehazing_instance = DehazingCPU()
                 self.frame = dehazing_instance.image_processing(frame)
             else:
-                dehazing_instance = DehazingCuda()
+                dehazing_instance = DehazingCPU()
                 self.frame = dehazing_instance.image_processing(frame)
 
             with self.thread_lock:
-                # frame_count += 1
-                # elapsed_time = time.time() - self.start_time
-                # fps = frame_count / elapsed_time
-                self.frame_processed.emit(self.frame)
-                #Calculate FPS
-                fps = self.capture.get(cv2.CAP_PROP_FPS)
+                # Calculate FPS
+                self.frame_count += 1
+                elapsed_time = time.time() - self.start_time
+                fps = self.frame_count / elapsed_time
                 self.logger.debug(f"FPS: {fps}")
+
+                self.frame_processed.emit(self.frame)
+
         except Exception as e:
-            self.capture.release()
             self.logger.error(f"Error processing frame: {e}")
 
     def start(self) -> None:
@@ -110,6 +108,7 @@ class CameraStream(QThread):
         self.thread.start()
 
     def stop(self) -> None:
+        self.stop_thread = True  # Set the flag to stop the threads
         if self.capture is not None:
             self.capture.release()
         cv2.destroyAllWindows()
@@ -117,52 +116,53 @@ class CameraStream(QThread):
 
 
 class VideoProcessor(QObject):
-    """
-    A class for processing videos, including dehazing the frames and saving the result.
-
-    Attributes:
-        input_file (str): The input video file path.
-        output_file (str): The output video file path.
-        total_frames (int): The total number of frames in the video.
-        frames_processed (int): The number of frames processed.
-        status_lock (threading.Lock): A lock for synchronizing status updates.
-    """
     update_progress_signal = pyqtSignal(int)
 
-    def __init__(self, input_file, output_file):
-        """
-        Initialize a VideoProcessor object.
-
-        Args:
-            input_file (str): The input video file path.
-            output_file (str): The output video file path.
-        """
+    def __init__(self, input_file, output_file, batch_size=30, num_threads=4):
         super(VideoProcessor, self).__init__()
         self.input_file = input_file
         self.output_file = output_file
+        self.batch_size = batch_size
+        self.num_threads = num_threads
         self.total_frames = 0
         self.frames_processed = 0
-        self.status_lock = threading.Lock()
+        self.status_lock = Lock()
+        self.manager = Manager()
+        self.frames_queue = self.manager.Queue()
 
     def process_frame(self, frame):
-        """
-        Process a single frame: dehaze it and return the processed frame.
-
-        Args:
-            frame: The input frame.
-
-        Returns:
-            processed_frame: The processed frame.
-        """
         dehazing_instance = DehazingCPU()
         processed_frame = dehazing_instance.image_processing(frame)
         processed_frame = cv2.convertScaleAbs(processed_frame, alpha=(255.0))
         return processed_frame
 
+    def read_frames(self, cap, batch_size):
+        frames_batch = []
+        for _ in range(batch_size):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames_batch.append(frame)
+        return frames_batch
+
+    def process_batch(self, frames_batch):
+        with ThreadPoolExecutor(max_workers=self.num_threads // 2) as executor1, \
+                ThreadPoolExecutor(max_workers=self.num_threads // 2) as executor2:
+            futures1 = [executor1.submit(self.process_frame, frame)
+                        for frame in frames_batch[:len(frames_batch)//2]]
+            futures2 = [executor2.submit(self.process_frame, frame)
+                        for frame in frames_batch[len(frames_batch)//2:]]
+
+            processed_frames1 = [future.result() for future in futures1]
+            processed_frames2 = [future.result() for future in futures2]
+
+        return processed_frames1 + processed_frames2
+
+    def write_frames(self, out, processed_frames):
+        for frame in processed_frames:
+            out.write(frame)
+
     def process_video(self):
-        """
-        Process the input video, dehaze each frame, and save the result to the output video file.
-        """
         start_time = time.time()
         cap = cv2.VideoCapture(self.input_file)
         if not cap.isOpened():
@@ -178,29 +178,26 @@ class VideoProcessor(QObject):
         with self.status_lock:
             self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        # Use ThreadPoolExecutor to parallelize frame processing
-        CPUThread = ThreadCal.EnumThread()
-        with ThreadPoolExecutor(max_workers=CPUThread) as executor:
-            futures = []
-
-            while True:
-                with self.status_lock:
-                    if self.frames_processed >= self.total_frames:
-                        break  # Break the loop if all frames have been processed
-
-                ret, frame = cap.read()
-                if not ret:
+        while True:
+            with self.status_lock:
+                if self.frames_processed >= self.total_frames:
                     break
 
-                future = executor.submit(self.process_frame, frame)
-                future.add_done_callback(self.update_progress)
-                futures.append(future)
+            frames_batch = self.read_frames(cap, self.batch_size)
+            if not frames_batch:
+                break
 
-            for future in futures:
-                processed_frame = future.result()
-                out.write(processed_frame)
-                print(
-                    f"Processed {self.frames_processed} of {self.total_frames} frames")
+            processed_frames = self.process_batch(frames_batch)
+            print(
+                f"Processed {self.frames_processed} of {self.total_frames} frames")
+
+            self.write_frames(out, processed_frames)
+
+            with self.status_lock:
+                self.frames_processed += len(frames_batch)
+                progress_percentage = int(
+                    (self.frames_processed / self.total_frames) * 100)
+                self.update_progress_signal.emit(progress_percentage)
 
         cap.release()
         out.release()
@@ -208,10 +205,7 @@ class VideoProcessor(QObject):
         print(f"Processing took {time.time() - start_time} seconds")
 
     def start_processing(self):
-        """
-        Start processing the video in a separate thread.
-        """
-        processing_thread = threading.Thread(target=self.process_video)
+        processing_thread = Thread(target=self.process_video)
         processing_thread.start()
 
     def update_progress(self, future):
