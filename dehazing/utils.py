@@ -8,14 +8,13 @@ from dehazing.dehazing import *
 from PyQt5.QtCore import pyqtSignal, QThread, QObject
 import logging
 import psutil
-from queue import Queue
 
 class ThreadCal():
     def EnumThread():
         #idk how python works walang data type asdasdas HAHAHA
         threads_count = psutil.cpu_count() / psutil.cpu_count(logical=False)
         return threads_count
-    
+    #check what cap is using
 def decode_fourcc(v):
     v = int(v)
     return "".join([chr((v >> 8 * i) & 0xFF) for i in range(4)])
