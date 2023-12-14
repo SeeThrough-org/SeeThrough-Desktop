@@ -45,7 +45,7 @@ class CameraStream(QThread):
             self.capture = cv2.VideoCapture(self.url)
             # oldfourcc = decode_fourcc(self.capture.get(cv2.CAP_PROP_FOURCC))
             # print(oldfourcc)
-            self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"h264"))
+            # self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"h264"))
             if not self.capture.isOpened():
                 raise ValueError(
                     f"Error: Unable to open video capture from {self.url}")
