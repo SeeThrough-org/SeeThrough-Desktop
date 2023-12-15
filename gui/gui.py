@@ -266,7 +266,8 @@ class GUI(QMainWindow):
         self.progress_dialog.setAutoClose(True)
         self.progress_dialog.setAutoReset(False)
         self.progress_dialog.show()
-
+        self.progress_dialog.canceled.connect(
+            video_processor.cancel_processing)
         # Start the video processing thread
         video_processor.start_processing()
 

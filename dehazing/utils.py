@@ -132,7 +132,7 @@ class VideoProcessor(QObject):
         self.status_lock = Lock()
         self.threads_count = min(psutil.cpu_count(
             logical=False), psutil.cpu_count())
-        self.executor = ThreadPoolExecutor(max_workers=self.threads_count)
+        self.cancel_requested = False
 
     @staticmethod
     def process_frame(frame):
@@ -175,6 +175,10 @@ class VideoProcessor(QObject):
                     processed_frame = futures.popleft().result()
                     out.write(processed_frame)
                     del processed_frame  # Explicitly delete the processed frame to free up memory
+
+                    if self.cancel_requested:
+                        break
+
             while futures:
                 processed_frame = futures.popleft().result()
                 out.write(processed_frame)
@@ -198,3 +202,7 @@ class VideoProcessor(QObject):
                 f"Outputting frame {self.frames_processed} of {self.total_frames}")
             print(self.threads_count)
             self.update_progress_signal.emit(progress_percentage)
+
+    def cancel_processing(self):
+        self.cancel_requested = True
+        self.update_progress_signal.disconnect()
