@@ -100,7 +100,6 @@ class CameraStream(QThread):
                 elapsed_time = time.time() - self.start_time
                 fps = self.frame_count / elapsed_time
                 self.logger.debug(f"FPS: {fps}")
-                print(self.threads_count)
                 self.frame_processed.emit(self.frame)
         except Exception as e:
             self.logger.error(f"Error processing frame: {e}")
