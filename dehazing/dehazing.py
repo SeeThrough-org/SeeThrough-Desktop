@@ -2,19 +2,17 @@ from PyQt5.QtGui import QImage
 from PyQt5.QtCore import pyqtSignal
 import cv2
 import numpy as np
-import time
 from threading import Thread
 import cv2
 import time
-import math
 from numba import cuda
 from scipy.ndimage import gaussian_filter
-
+import numba as nb
 
 class DehazingCPU(object):
     def DarkChannel(self, im, sz):
         b, g, r = cv2.split(im)
-        dc = cv2.min(cv2.min(r, g), b)  # Use CPU min function
+        dc = np.min(np.stack([r, g, b]), axis=0)
 
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (sz, sz))
         dark = cv2.erode(dc, kernel)
@@ -32,7 +30,7 @@ class DehazingCPU(object):
 
         A = np.mean(img[coords[:, 0], coords[:, 1], :], axis=0, keepdims=True)
         return A
-
+    
     def TransmissionEstimate(self, im, A, sz):
         omega = 0.90
         im3 = im / A[0, :]
@@ -52,26 +50,11 @@ class DehazingCPU(object):
 
     def image_processing(self, frame):
         I = frame.astype('float64') / 255
-
-        start = time.time()
         dark = self.DarkChannel(I, 15)
-        print(f"Dark: {time.time() - start}")
-
-        start = time.time()
         A = self.EstimateA(I, dark)
-        print(f"Atmos: {time.time() - start}")
-
-        start = time.time()
         te = self.TransmissionEstimate(I, A, 3)
-        print(f"Tmap: {time.time() - start}")
-
-        start = time.time()
         t = self.GaussianTransmissionRefine(te)
-        print(f"Gauss: {time.time() - start}")
-
-        start = time.time()
         J = self.Recover(I, t, A, 0.1)
-        print(f"J: {time.time() - start}")
 
         return J
 

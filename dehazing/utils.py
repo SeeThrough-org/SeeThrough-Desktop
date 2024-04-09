@@ -3,15 +3,30 @@ from threading import Thread, Lock
 import time
 import numpy as np
 from dehazing.dehazing import *
-from PyQt5.QtCore import pyqtSignal, QThread, QObject
+from PyQt5.QtCore import pyqtSignal, QThread, QObject, QMetaObject, Qt, QTimer, pyqtSlot
 import logging
 import psutil
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from collections import deque
+import threading
+
+class CameraStreamThread(QThread):
+    def __init__(self, camera_stream):
+        super().__init__()
+        self.camera_stream = camera_stream
+
+    def run(self):
+        self.camera_stream.update()
+    def stop(self):
+        # self.camera_stream.stop()
+        self.camera_stream.stop()
+        self.quit()
+        self.wait()
 
 
-class CameraStream(QThread):
+class CameraStream(QObject):
     frame_processed = pyqtSignal(np.ndarray)
+    stop_stream = pyqtSignal()
 
     def __init__(self, url) -> None:
         super(CameraStream, self).__init__()
@@ -23,17 +38,25 @@ class CameraStream(QThread):
         self.use_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
         self.thread_lock = Lock()
         self.init_video_capture()
-        self.width = 640
-        self.height = 480
-        self.inter = cv2.INTER_AREA
-        self.stop_thread = False  # Flag to signal the threads to stop
+        self.stop_thread = False  
+        self.frame = None
+        self.executor = ThreadPoolExecutor(max_workers=min(psutil.cpu_count(
+            logical=False), psutil.cpu_count()))
+        self.stop_stream.connect(self.stop_update)
 
     def init_video_capture(self):
         try:
-            self.capture = cv2.VideoCapture(self.url)
+            self.capture = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
             if not self.capture.isOpened():
                 raise ValueError(
                     f"Error: Unable to open video capture from {self.url}")
+        except cv2.error as e:
+            # Check the specific error code
+            if e.err == cv2.VIDEOINPUT_ERR_INVALID_ARGUMENT:
+                print(f"Invalid URL: {self.url}")
+            else:
+                print(f"OpenCV error: {e.err}")
+            self.status = False
         except Exception as e:
             print(f"Error initializing video capture: {e}")
             self.status = False
@@ -55,70 +78,88 @@ class CameraStream(QThread):
     def grab_frames(self):
         while not self.stop_thread:
             if self.capture.isOpened():
-                self.capture.grab()
+                try:
+                    ret = self.capture.grab()
+                    if not ret:
+                        print("Failed to grab frame")
+                        break
+                except cv2.error as e:
+                    print(f"OpenCV error: {e}")
+                    break
+                except Exception as e:
+                    print(f"Unknown error: {e}")
+                    break
             else:
+                print("Video capture is not opened")
                 self.stop_thread = True
 
     def update(self):
-        grab_thread = Thread(target=self.grab_frames, args=())
-        grab_thread.daemon = True
-        grab_thread.start()
-
-        while not self.stop_thread:
-            try:
-                if self.capture.isOpened():
-                    self.status, frame = self.capture.retrieve()
-
-                    if self.status:
-                        self.img = cv2.resize(
-                            frame, (self.width, self.height), self.inter)
-                        # Process the frame in a separate thread
-                        process_thread = Thread(
-                            target=self.process_and_emit_frame, args=(self.img,))
-                        process_thread.daemon = True
-                        process_thread.start()
-
+        try:
+            future = self.executor.submit(self.grab_frames)
+            while not self.stop_thread:
+                try:
+                    if self.capture.isOpened():
+                        self.status, self.frame = self.capture.retrieve()
+                        if self.status:
+                            future_process = self.executor.submit(self.process_and_emit_frame, self.frame)
+                            future_process.result()
+                        else:
+                            self.status = False
                     else:
-                        self.status = False  # Ensure status is False if the capture is not opened
-            except Exception as e:
-                print(f"Error processing frame: {e}")
-                self.status = False  # Set status to False in case of error
+                        self.stop_thread = True
+                except Exception as e:
+                    print(f"Error processing frame: {e}")
+                    self.status = False
 
-        grab_thread.join()
+            future.result()
+        except Exception as e:
+            print(f"Error updating camera stream: {e}")
 
     def process_and_emit_frame(self, frame):
         try:
-            if not self.use_cuda:
-                dehazing_instance = DehazingCPU()
-                self.frame = dehazing_instance.image_processing(frame)
-            else:
-                dehazing_instance = DehazingCPU()
-                self.frame = dehazing_instance.image_processing(frame)
+            dehazing_instance = DehazingCPU()
+            future_dehazing = self.executor.submit(lambda: dehazing_instance.image_processing(frame))
+            self.frame = future_dehazing.result()
 
-            with self.thread_lock:
-                self.frame_count += 1
-                elapsed_time = time.time() - self.start_time
-                fps = self.frame_count / elapsed_time
-                self.logger.debug(f"FPS: {fps}")
-                self.frame_processed.emit(self.frame)
+            if self.frame is not None:
+                with self.thread_lock:
+                    self.frame_count += 1
+                    elapsed_time = time.time() - self.start_time
+                    fps = self.frame_count / elapsed_time
+                    self.logger.debug(f"FPS: {fps}")
+                    self.frame_processed.emit(self.frame)
         except Exception as e:
             self.logger.error(f"Error processing frame: {e}")
 
     def start(self) -> None:
-        self.thread = Thread(target=self.update, args=())
-        self.thread.daemon = True
-        self.thread.start()
+        try:
+            self.thread = Thread(target=self.update, args=())
+            self.thread.daemon = True
+            self.thread.start()
+        except Exception as e:
+            print(f"Error starting camera stream: {e}")
+
+    @pyqtSlot()
+    def stop_update(self):
+        self.stop_thread = True
+
+    @pyqtSlot()
+    def stop_timer(self):
+        if self.thread is not None and isinstance(self.thread, threading.Thread):
+            self.thread.join()
+        if self.capture is not None:
+            self.capture.release()
 
     def stop(self) -> None:
-        # time.sleep(1)
-        with self.thread_lock:
-            self.stop_thread = True  # Set the flag to stop the threads
-            if self.thread is not None:
-                self.thread.join()
-            if self.capture is not None:
-                self.capture.release()
-            self.terminate()
-
+        try:
+            with self.thread_lock:
+                self.stop_thread = True  # Set the flag to stop the threads
+                self.stop_stream.emit()  # Emit the signal to stop the stream
+                QMetaObject.invokeMethod(self, "stop_timer", Qt.QueuedConnection)
+        except Exception as e:
+            print(f"Error stopping camera stream: {e}")
+    
+    
 
 class VideoProcessor(QObject):
     update_progress_signal = pyqtSignal(int)
@@ -144,14 +185,14 @@ class VideoProcessor(QObject):
     def process_video(self):
         start_time = time.time()
         cap = cv2.VideoCapture(self.input_file)
-        if not cap.isOpened():
+        if cap is None or not cap.isOpened():
             print('Error opening video file')
             return
 
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         original_fps = cap.get(cv2.CAP_PROP_FPS)
-        out = cv2.VideoWriter(self.output_file, cv2.VideoWriter_fourcc(*'mp4v'),
+        out = cv2.VideoWriter(self.output_file, cv2.VideoWriter_fourcc(*'H264'),
                               original_fps, (frame_width, frame_height))
 
         self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -200,7 +241,6 @@ class VideoProcessor(QObject):
                 (self.frames_processed / self.total_frames) * 100)
             print(
                 f"Outputting frame {self.frames_processed} of {self.total_frames}")
-            print(self.threads_count)
             self.update_progress_signal.emit(progress_percentage)
 
     def cancel_processing(self):

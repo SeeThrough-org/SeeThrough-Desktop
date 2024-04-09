@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton, QV
 
 
 def main():
-    app = QApplication([])
+    app = QApplication(sys.argv)
     window = GUI()
     window.show()
     sys.exit(app.exec_())

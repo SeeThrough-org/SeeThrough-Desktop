@@ -10,7 +10,6 @@ from dehazing.dehazing import *
 from dehazing.utils import *
 from dehazing.utils import VideoProcessor
 from PyQt5.QtCore import Qt, QTimer, QThread
-import sys
 import configparser
 import os
 os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r'path/to/qt/plugins/platforms'
@@ -43,7 +42,7 @@ class GUI(QMainWindow):
         # Create a stacked widget to manage frames
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
-
+        self.stacked_widget.setCurrentIndex(0)
         # Create and add frames to the stacked widget
         self.stacked_widget.addWidget(self.realtime_frames())
         self.stacked_widget.addWidget(self.static_dehazing_frames())
@@ -53,7 +52,7 @@ class GUI(QMainWindow):
         navbar_buttons = navbar.findChildren(QPushButton)
         for button in navbar_buttons:
             button.clicked.connect(self.switch_frame)
-
+      
         # Create switch_framea layout for the central widget and add the stacked widget and navbar
         central_layout = QVBoxLayout()
         central_layout.addWidget(self.stacked_widget)
@@ -64,7 +63,6 @@ class GUI(QMainWindow):
         central_widget.setLayout(central_layout)
         self.setCentralWidget(central_widget)
         self.active_button = None  # Track the active button
-        self.active_frame = 0
         self.processed_image = None
         self.image_path = None
         self.camera_stream = None
@@ -284,6 +282,40 @@ class GUI(QMainWindow):
     def switch_frame(self):
         frame_text = self.sender().text()
 
+        # Reset the previous active button's styling
+        if self.active_button:
+            self.active_button.setStyleSheet('''
+                QPushButton {
+                    background-color: #fff;
+                    border: 1px solid gray;
+                    border-radius: 10px;
+                    padding: 10px 60px;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #373030;
+                    color: #fff;
+                }
+            ''')
+
+        # Update the new active button's styling
+        self.active_button = self.sender()
+        self.active_button.setStyleSheet('''
+            QPushButton {
+                background-color: #373030;
+                color: #fff;
+                border: 1px solid gray;
+                border-radius: 10px;
+                padding: 10px 60px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #595959;
+                color: #fff;
+            }
+        ''')
+        
+
         if frame_text == 'Realtime Dehazing':
             self.stacked_widget.setCurrentIndex(0)
         elif frame_text == 'Static Dehazing':
@@ -469,19 +501,24 @@ class GUI(QMainWindow):
             ip_address = config['DEFAULT']['input']
         else:
             ip_address = '0'
-
+            
+        if ip_address == '':
+            QMessageBox.warning(
+                self, "Error", "Please, set the camera IP address in the settings.")
+            return
+    
         if self.start_button.isChecked():
-            # Create an instance of the CameraStream class (assuming it's properly initialized)
-            self.camera_stream = CameraStream(ip_address)
-            self.camera_stream.start()
-            # Connect the CameraStream's signal to update the cctv_frame
-            self.camera_stream.frame_processed.connect(self.update_cctv_frame)
+            # Create an instance of the CameraStreamThread class
+            self.camera_stream_thread = CameraStreamThread(CameraStream(ip_address))
+            self.camera_stream_thread.camera_stream.frame_processed.connect(self.update_cctv_frame)
+            self.camera_stream_thread.start()
             self.start_button.setText("Stop")
         else:
             # Stop the camera stream if the button is unchecked
             self.start_button.setText("Start")
-            if hasattr(self, 'camera_stream'):
-                self.camera_stream.stop()
+            if hasattr(self, 'camera_stream_thread'):
+                self.camera_stream_thread.stop()
+                self.camera_stream_thread = None
 
     @pyqtSlot(np.ndarray)
     def update_cctv_frame(self, cv_img):
