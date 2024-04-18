@@ -1,18 +1,12 @@
-import time
-import cv2
-import numpy as np
-from PyQt5.QtCore import Qt, QSize, pyqtSlot, QTimer
-from PyQt5.QtGui import QIcon, QPixmap, QImage
+
+from PyQt5.QtCore import Qt,  QTimer, QPropertyAnimation
+from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
     QVBoxLayout,
     QStackedWidget,
-    QSizePolicy,
-    QGridLayout,
-    QSplashScreen,
-    QHBoxLayout,
     QMessageBox,
     QLabel,
     QProgressDialog,
@@ -20,44 +14,50 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QLineEdit,
     QDialogButtonBox,
-    QPushButton,
-    QProgressBar,
+    QSplashScreen,
+    QGraphicsOpacityEffect,
 )
-
-import configparser
-import os
+import sys
+import ctypes
 
 from gui.navbar import NavBar
 from gui.realtime_frame import RealtimeFrame
 from gui.static_frame import StaticFrame
 from dehazing.utils import VideoProcessor
 from gui.config import ConfigManager
-os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = r"path/to/qt/plugins/platforms"
-
-
+class FadeSplashScreen(QSplashScreen):
+    def __init__(self, pixmap, fade_in_duration=1000, fade_out_duration=1000):
+        super().__init__(pixmap)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.effect)
+        self.animation = QPropertyAnimation(self.effect, b"opacity")
+        self.animation.setDuration(fade_in_duration)
+        self.fade_in_duration = fade_in_duration
+        self.fade_out_duration = fade_out_duration
+    
+    def fade_in(self):
+        self.show()
+        self.animation.setStartValue(0.0)
+        self.animation.setEndValue(1.0)
+        self.animation.setDuration(self.fade_in_duration)
+        self.animation.start()
+    
+    def fade_out(self):
+        self.animation.setStartValue(1.0)
+        self.animation.setEndValue(0.0)
+        self.animation.setDuration(self.fade_out_duration)
+        self.animation.finished.connect(self.close)
+        self.animation.start()
 class GUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.background_pixmap = QPixmap("gui/assets/splash.jpg")
-        self.background_pixmap = self.background_pixmap.scaled(
-            800, 800, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        self.splash = QSplashScreen(self.background_pixmap)
-
-        # Get the current screen desktop geometry
-        screen_geometry = QApplication.desktop().screenGeometry()
-        splash_width = 800
-        splash_height = 400
-        x = (screen_geometry.width() - splash_width) // 2
-        y = (screen_geometry.height() - splash_height) // 2
-        self.splash.setGeometry(x, y, splash_width, splash_height)
-        self.splash.show()
-
-        QTimer.singleShot(2000, self.show_main_window)
         self.setWindowTitle("SeeThrough")
         self.setGeometry(100, 100, 1440, 900)
         self.setMinimumSize(1280, 720)  # Minimum width and height
-        self.setWindowIcon(QIcon("gui/assets/icons/logo.svg"))
+        self.setWindowIcon(QIcon("./gui/assets/logo.png")) 
+        # Check setWindowIcon path 
+
         self.setStyleSheet("QMainWindow {background-color: #fff;}")
 
         # Create a stacked widget to manage frames
@@ -96,11 +96,6 @@ class GUI(QMainWindow):
         self.processed_image = None
         self.image_path = None
         self.camera_stream = None
-
-    def show_main_window(self):
-        # Close splash screen and show main GUI
-        self.splash.finish(self)
-        self.show()
 
     def video_dehazing(self):
         # Ask the user to select a video file
@@ -220,7 +215,19 @@ class GUI(QMainWindow):
 
 
 if __name__ == "__main__":
-    app = QApplication([])
+    app = QApplication(sys.argv)
+    myappid = 'aklas.dehazing.seethrough.1' # arbitrary string
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    splash_pix = QPixmap("./gui/assets/logo.png")
+    resized_pixmap = splash_pix.scaled(640, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation) 
+
+    splash = FadeSplashScreen(resized_pixmap, 0, 1500)  
+    splash.fade_in()
+
     gui = GUI()
-    gui.show()
-    app.exec_()
+    
+    timer = QTimer()
+    timer.singleShot(2500, lambda: splash.fade_out())  
+    timer.singleShot(4000, lambda: gui.show()) 
+
+    sys.exit(app.exec_())

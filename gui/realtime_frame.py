@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
-from PyQt5.QtCore import pyqtSlot, Qt, QTimer, QSize
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import pyqtSlot, Qt
+from PyQt5.QtGui import QImage, QPixmap, QIcon
 from PyQt5.QtWidgets import (
     QWidget,
     QGridLayout,
@@ -50,9 +50,8 @@ class RealtimeFrame(QWidget):
 
         # Create the settings button
         manage_camera_button = QPushButton()
-        manage_camera_button.setIcon(
-            self.parent.style().standardIcon(self.parent.style().SP_FileDialogDetailedView)
-        )
+        manage_camera_button.setIcon(QIcon('gui/assets/icons/settings.svg'))
+
         manage_camera_button.setToolTip("Manage Cameras")
         manage_camera_button.setStyleSheet(
             """

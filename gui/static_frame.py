@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtWidgets import (
     QWidget,
     QGridLayout,
@@ -36,9 +36,6 @@ class StaticFrame(QWidget):
 
         # Add the "Select Image" button
         btn_load_image = QPushButton("Load Image")
-        btn_load_image.setIcon(
-            self.parent.style().standardIcon(self.parent.style().SP_FileDialogDetailedView)
-        )
         btn_load_image.setToolTip("Load Image")
         btn_load_image.clicked.connect(self.load_image)
 
@@ -75,9 +72,6 @@ class StaticFrame(QWidget):
 
         # Add the "Save Image" button
         btn_save_image = QPushButton("Save Image")
-        btn_save_image.setIcon(
-            self.parent.style().standardIcon(self.parent.style().SP_DialogSaveButton)
-        )
         btn_save_image.setToolTip("Save Image")
         btn_save_image.clicked.connect(self.save_image)
 

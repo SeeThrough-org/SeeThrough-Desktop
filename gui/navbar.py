@@ -86,7 +86,7 @@ class NavBar(QWidget):
         )
 
         self.exit_button = QPushButton()
-        self.exit_button.setIcon(QIcon("gui/assets/icons/exit.svg"))
+        self.exit_button.setIcon(QIcon("./gui/assets/icons/exit.svg"))
         self.exit_button.setIconSize(QSize(32, 32))
         self.exit_button.setStyleSheet(
             """
