@@ -36,6 +36,12 @@ class RealtimeFrame(QWidget):
         self.cctv_frame.setStyleSheet(
             "border: 1px solid gray; border-radius: 10px; background-color: black;"
         )
+        # FPS 
+        self.fps_value = 0
+        self.prev_time = 0 
+        self.fps_label = QLabel("FPS:")
+        self.fps_label.setStyleSheet("color: black; font-size: 14px; background-color: transparent;")
+        cctv_layout.addWidget(self.fps_label, 0, 1, Qt.AlignRight)
 
         # Add widgets to the layout
         cctv_layout.addWidget(self.cctv_frame, 1, 1)
@@ -50,7 +56,7 @@ class RealtimeFrame(QWidget):
 
         # Create the settings button
         manage_camera_button = QPushButton()
-        manage_camera_button.setIcon(QIcon('gui/assets/icons/settings.svg'))
+        manage_camera_button.setIcon(QIcon('assets/settings.svg'))
 
         manage_camera_button.setToolTip("Manage Cameras")
         manage_camera_button.setStyleSheet(
@@ -97,7 +103,7 @@ class RealtimeFrame(QWidget):
         if self.start_button.isChecked():
             # Create an instance of the CameraStreamThread class
             self.camera_stream = CameraStream(ip_address)
-            self.camera_stream.frame_processed.connect(self.update_cctv_frame)
+            self.camera_stream.frame_processed.connect(self.update_cctv_frame, self.fps_value)
             self.camera_stream.start()
             self.start_button.setText("Stop")
         else:
@@ -107,8 +113,8 @@ class RealtimeFrame(QWidget):
                 self.camera_stream.stop()
                 self.camera_stream = None
 
-    @pyqtSlot(np.ndarray)
-    def update_cctv_frame(self, cv_img):
+    @pyqtSlot(np.ndarray, float)
+    def update_cctv_frame(self, cv_img, fps_value):
         scaled_image = (cv_img * 255.0).clip(0, 255).astype(np.uint8)
         rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
         qimage = QImage(
@@ -122,6 +128,7 @@ class RealtimeFrame(QWidget):
             self.cctv_frame.width(), self.cctv_frame.height(), Qt.KeepAspectRatio
         )
 
+        self.fps_label.setText(f"FPS: {fps_value:.2f}")
         # Update the camera feed label with the scaled pixmap
         self.cctv_frame.setPixmap(pixmap)
         self.cctv_frame.setAlignment(Qt.AlignCenter)

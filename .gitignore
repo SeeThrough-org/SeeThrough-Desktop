@@ -5,3 +5,6 @@
 /settings.cfg
 *.mp4
 /.idea
+/dist
+/build
+*.spec

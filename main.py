@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 )
 import sys
 import ctypes
+import os 
 
 from gui.navbar import NavBar
 from gui.realtime_frame import RealtimeFrame
@@ -55,7 +56,7 @@ class GUI(QMainWindow):
         self.setWindowTitle("SeeThrough")
         self.setGeometry(100, 100, 1440, 900)
         self.setMinimumSize(1280, 720)  # Minimum width and height
-        self.setWindowIcon(QIcon("./gui/assets/logo.png")) 
+        self.setWindowIcon(QIcon("assets/logo.png")) 
         # Check setWindowIcon path 
 
         self.setStyleSheet("QMainWindow {background-color: #fff;}")
@@ -218,7 +219,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     myappid = 'aklas.dehazing.seethrough.1' # arbitrary string
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-    splash_pix = QPixmap("./gui/assets/logo.png")
+    splash_pix = QPixmap("assets/logo.png")
     resized_pixmap = splash_pix.scaled(640, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation) 
 
     splash = FadeSplashScreen(resized_pixmap, 0, 1500)  

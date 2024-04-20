@@ -11,7 +11,7 @@ from collections import deque
 import functools
 
 class CameraStream(QThread):
-    frame_processed = pyqtSignal(np.ndarray)
+    frame_processed = pyqtSignal(np.ndarray, float)
     stop_stream = pyqtSignal()
 
     def __init__(self, url):
@@ -57,12 +57,10 @@ class CameraStream(QThread):
         try:
             dehazing_instance = DehazingCPU()
             frame = dehazing_instance.image_processing(frame)
-            self.frame_processed.emit(frame)
             self.frame_count += 1
             elapsed_time = time.perf_counter() - self.start_time
             fps = self.frame_count / elapsed_time
-            print(f"FPS: {fps:.2f}")
-            self.logger.debug(f"FPS: {fps:.2f}")
+            self.frame_processed.emit(frame, fps)
         except Exception as e:
             self.logger.error(f"Error processing frame: {e}")
 
