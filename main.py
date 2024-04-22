@@ -40,7 +40,9 @@ class MovieSplashScreen(QSplashScreen):
         pixmap = self.movie.currentPixmap()
         self.setMask(pixmap.mask())
         painter.drawPixmap(0, 0, pixmap)
-
+        
+    def mousePressEvent(self, event):
+        pass
 
 class GUI(QMainWindow):
     def __init__(self):
