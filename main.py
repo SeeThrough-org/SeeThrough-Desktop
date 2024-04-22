@@ -1,6 +1,6 @@
 
-from PyQt5.QtCore import Qt,  QTimer, QPropertyAnimation
-from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
+from PyQt5.QtCore import Qt,  QSize
+from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QMovie
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -20,43 +20,35 @@ from PyQt5.QtWidgets import (
 import sys
 import ctypes
 import os 
-
+import time
 from gui.navbar import NavBar
 from gui.realtime_frame import RealtimeFrame
 from gui.static_frame import StaticFrame
 from dehazing.utils import VideoProcessor
 from gui.config import ConfigManager
-class FadeSplashScreen(QSplashScreen):
-    def __init__(self, pixmap, fade_in_duration=1000, fade_out_duration=1000):
-        super().__init__(pixmap)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-        self.effect = QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self.effect)
-        self.animation = QPropertyAnimation(self.effect, b"opacity")
-        self.animation.setDuration(fade_in_duration)
-        self.fade_in_duration = fade_in_duration
-        self.fade_out_duration = fade_out_duration
-    
-    def fade_in(self):
-        self.show()
-        self.animation.setStartValue(0.0)
-        self.animation.setEndValue(1.0)
-        self.animation.setDuration(self.fade_in_duration)
-        self.animation.start()
-    
-    def fade_out(self):
-        self.animation.setStartValue(1.0)
-        self.animation.setEndValue(0.0)
-        self.animation.setDuration(self.fade_out_duration)
-        self.animation.finished.connect(self.close)
-        self.animation.start()
+class MovieSplashScreen(QSplashScreen):
+
+    def __init__(self, movie, parent=None):
+        movie.jumpToFrame(0)
+        pixmap = QPixmap(movie.frameRect().size())
+
+        QSplashScreen.__init__(self, pixmap)
+        self.movie = movie
+        self.movie.frameChanged.connect(self.repaint)
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        pixmap = self.movie.currentPixmap()
+        self.setMask(pixmap.mask())
+        painter.drawPixmap(0, 0, pixmap)
+
+
 class GUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SeeThrough")
         self.setGeometry(100, 100, 1440, 900)
         self.setMinimumSize(1280, 720)  # Minimum width and height
-        self.setWindowIcon(QIcon("assets/logo.png")) 
+        self.setWindowIcon(QIcon("assets/logo.ico")) 
         # Check setWindowIcon path 
 
         self.setStyleSheet("QMainWindow {background-color: #fff;}")
@@ -219,16 +211,19 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     myappid = 'aklas.dehazing.seethrough.1' # arbitrary string
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-    splash_pix = QPixmap("assets/logo.png")
-    resized_pixmap = splash_pix.scaled(640, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation) 
-
-    splash = FadeSplashScreen(resized_pixmap, 0, 1500)  
-    splash.fade_in()
 
     gui = GUI()
-    
-    timer = QTimer()
-    timer.singleShot(2500, lambda: splash.fade_out())  
-    timer.singleShot(4000, lambda: gui.show()) 
+    movie = QMovie("assets/logo.gif")
+    movie.setScaledSize(QSize(600, 271))
+    splash = MovieSplashScreen(movie)
+    splash.show()
+    splash.movie.start()
 
+    start = time.time()
+    while movie.state() == QMovie.Running and time.time() < start + 5:
+        app.processEvents()
+
+    gui.show()
+    splash.finish(gui)
+  
     sys.exit(app.exec_())
