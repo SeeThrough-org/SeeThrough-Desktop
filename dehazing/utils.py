@@ -56,7 +56,9 @@ class CameraStream(QThread):
     def process_and_emit_frame(self, frame):
         try:
             dehazing_instance = DehazingCPU()
+            self.img = frame
             frame = dehazing_instance.image_processing(frame)
+            self.frame = frame
             self.frame_count += 1
             elapsed_time = time.perf_counter() - self.start_time
             fps = self.frame_count / elapsed_time
