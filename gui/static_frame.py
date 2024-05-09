@@ -135,29 +135,32 @@ class StaticFrame(QWidget):
             return
 
     def start_processing(self):
-        if self.image_path is None:
-            QMessageBox.information(self, "Error", "Please, Load an Image First!")
-            return
-        image = cv2.imread(self.image_path)
-        dehazing_instance = DehazingCPU()
-        self.processed_image = dehazing_instance.image_processing(image)
-        pixmap = QPixmap(self.image_path)
-        pixmap = pixmap.scaled(self.InputFile.width(), self.InputFile.height(), Qt.KeepAspectRatio)
-        self.InputFile.setPixmap(pixmap)
-        self.InputFile.setAlignment(Qt.AlignCenter)
+        try:
+            if self.image_path is None:
+                QMessageBox.information(self, "Error", "Please, Load an Image First!")
+                return
+            image = cv2.imread(self.image_path)
+            dehazing_instance = DehazingCPU()
+            self.processed_image = dehazing_instance.image_processing(image)
+            pixmap = QPixmap(self.image_path)
+            pixmap = pixmap.scaled(self.InputFile.width(), self.InputFile.height(), Qt.KeepAspectRatio)
+            self.InputFile.setPixmap(pixmap)
+            self.InputFile.setAlignment(Qt.AlignCenter)
 
-        # Scale the processed image values to the range [0, 255] without data loss
-        scaled_image = (self.processed_image * 255.0).clip(0, 255).astype(np.uint8)
+            # Scale the processed image values to the range [0, 255] without data loss
+            scaled_image = (self.processed_image * 255.0).clip(0, 255).astype(np.uint8)
 
-        # Convert the NumPy array (BGR format) to an RGB image
-        rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
+            # Convert the NumPy array (BGR format) to an RGB image
+            rgb_image = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2RGB)
 
-        # Create a QImage from the RGB image
-        qimage = QImage(
-            rgb_image.data, rgb_image.shape[1], rgb_image.shape[0], rgb_image.shape[1] * 3, QImage.Format_BGR888
-        ).rgbSwapped()
-        qimage = qimage.scaled(self.OutputFile.width(), self.OutputFile.height(), Qt.KeepAspectRatio)
-        # Convert the QImage to a QPixmap
-        pixmap = QPixmap(qimage)
-        self.OutputFile.setPixmap(pixmap)
-        self.OutputFile.setAlignment(Qt.AlignCenter)
+            # Create a QImage from the RGB image
+            qimage = QImage(
+                rgb_image.data, rgb_image.shape[1], rgb_image.shape[0], rgb_image.shape[1] * 3, QImage.Format_BGR888
+            ).rgbSwapped()
+            qimage = qimage.scaled(self.OutputFile.width(), self.OutputFile.height(), Qt.KeepAspectRatio)
+            # Convert the QImage to a QPixmap
+            pixmap = QPixmap(qimage)
+            self.OutputFile.setPixmap(pixmap)
+            self.OutputFile.setAlignment(Qt.AlignCenter)
+        except Exception as e:
+            QMessageBox.information(self, "Error", f"Error processing image: {e}")

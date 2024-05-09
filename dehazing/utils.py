@@ -6,7 +6,7 @@ from dehazing.dehazing import *
 from PyQt5.QtCore import pyqtSignal, QThread, QObject, pyqtSlot
 import logging
 import psutil
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from collections import deque
 import functools
 
@@ -85,8 +85,7 @@ class VideoProcessor(QObject):
         self.total_frames = 0
         self.frames_processed = 0
         self.status_lock = Lock()
-        self.threads_count = min(psutil.cpu_count(
-            logical=False), psutil.cpu_count())
+        self.threads_count = min(psutil.cpu_count(logical=False), psutil.cpu_count())
         self.cancel_requested = False
 
     @staticmethod
@@ -106,23 +105,18 @@ class VideoProcessor(QObject):
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         original_fps = cap.get(cv2.CAP_PROP_FPS)
-        out = cv2.VideoWriter(self.output_file, cv2.VideoWriter_fourcc(*'H264'),
-                              original_fps, (frame_width, frame_height))
-
+        out = cv2.VideoWriter(self.output_file, cv2.VideoWriter_fourcc(*'H264'), original_fps, (frame_width, frame_height))
         self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        with ProcessPoolExecutor(max_workers=self.threads_count) as executor:
+        with ThreadPoolExecutor(max_workers=self.threads_count) as executor:
             futures = deque()
-
             while True:
                 with self.status_lock:
                     if self.frames_processed >= self.total_frames:
                         break
-
                 ret, frame = cap.read()
                 if not ret:
                     break
-
                 future = executor.submit(self.process_frame, frame)
                 future.add_done_callback(self.update_progress)
                 futures.append(future)
@@ -130,9 +124,8 @@ class VideoProcessor(QObject):
                     processed_frame = futures.popleft().result()
                     out.write(processed_frame)
                     del processed_frame  # Explicitly delete the processed frame to free up memory
-
-                    if self.cancel_requested:
-                        break
+                if self.cancel_requested:
+                    break
 
             while futures:
                 processed_frame = futures.popleft().result()
@@ -151,10 +144,8 @@ class VideoProcessor(QObject):
     def update_progress(self, future):
         with self.status_lock:
             self.frames_processed += 1
-            progress_percentage = int(
-                (self.frames_processed / self.total_frames) * 100)
-            print(
-                f"Outputting frame {self.frames_processed} of {self.total_frames}")
+            progress_percentage = int((self.frames_processed / self.total_frames) * 100)
+            # print(f"Outputting frame {self.frames_processed} of {self.total_frames}")
             self.update_progress_signal.emit(progress_percentage)
 
     def cancel_processing(self):
