@@ -9,13 +9,14 @@ from PyQt5.QtWidgets import (
 )
 import time
 import shutil
-from dehazing.utils import  VideoProcessor
+from dehazing.utils import VideoProcessor
+
 
 class VideoThread(QThread):
     frame_available = pyqtSignal(np.ndarray)
     video_duration_available = pyqtSignal(float)
     current_time_changed = pyqtSignal(float)
-    video_ended = pyqtSignal() 
+    video_ended = pyqtSignal()
 
     def __init__(self, video_file):
         super().__init__()
@@ -72,7 +73,6 @@ class VideoThread(QThread):
         self.paused = paused
 
 
-
 class VideoFrame(QWidget):
     def __init__(self, parent):
         super().__init__()
@@ -91,15 +91,11 @@ class VideoFrame(QWidget):
 
         video_layout.addWidget(self.video_label, 1, 1)
 
-        self.load_video_button = QPushButton("Load Video")
-        self.load_video_button.clicked.connect(self.load_video)
-        self.play_pause_button = QPushButton("Play")
+        self.load_video_button = self.create_styled_button("Load Video", self.load_video)
+        self.play_pause_button = self.create_styled_button("Play", self.play_pause_video)
         self.play_pause_button.setEnabled(False)
-        self.play_pause_button.clicked.connect(self.play_pause_video)
-        self.save_video_button = QPushButton("Save Video")
-        self.save_video_button.clicked.connect(self.save_video)
-        self.dehaze_button = QPushButton("Dehaze Video")
-        self.dehaze_button.clicked.connect(self.dehaze_video)
+        self.save_video_button = self.create_styled_button("Save Video", self.save_video)
+        self.dehaze_button = self.create_styled_button("Dehaze Video", self.dehaze_video)
         self.dehaze_button.setEnabled(False)
 
         button_layout = QHBoxLayout()
@@ -129,7 +125,33 @@ class VideoFrame(QWidget):
         self.was_playing_before_seek = False
         self.video_file = None
 
-        
+    def create_styled_button(self, text, connection):
+        btn = QPushButton(text)
+        btn.setToolTip(text)
+        btn.clicked.connect(connection)
+        btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #4CAF50;
+                border: none;
+                color: white;
+                padding: 10px 20px;
+                text-align: center;
+                text-decoration: none;
+                font-size: 16px;
+                margin: 4px 2px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+            """
+        )
+        return btn
 
     def load_video(self):
         try:
@@ -140,7 +162,7 @@ class VideoFrame(QWidget):
                 self.video_thread.frame_available.connect(self.update_frame)
                 self.video_thread.video_duration_available.connect(self.set_video_duration)
                 self.video_thread.current_time_changed.connect(self.update_seekbar_position)
-                self.video_thread.video_ended.connect(self.handle_video_ended) 
+                self.video_thread.video_ended.connect(self.handle_video_ended)
                 self.play_pause_button.setEnabled(True)
                 self.seekbar.setEnabled(True)
                 self.dehaze_button.setEnabled(True)
@@ -217,7 +239,7 @@ class VideoFrame(QWidget):
             self.video_thread.frame_available.connect(self.update_frame)
             self.video_thread.video_duration_available.connect(self.set_video_duration)
             self.video_thread.current_time_changed.connect(self.update_seekbar_position)
-            self.video_thread.video_ended.connect(self.handle_video_ended) 
+            self.video_thread.video_ended.connect(self.handle_video_ended)
             self.video_thread.start()
 
             # Ensure video_cap is fully initialized before accessing it
@@ -237,14 +259,8 @@ class VideoFrame(QWidget):
                     self.play_pause_button.setText("Play")
                 else:
                     QMessageBox.critical(self, "Error", "Failed to load the dehazed video.")
-                    # self.play_pause_button.setEnabled(True)
-                    # self.seekbar.setEnabled(True)
-                    # self.dehaze_button.setEnabled(True)
             else:
                 QMessageBox.critical(self, "Error", "Failed to load the dehazed video.")
-                # self.play_pause_button.setEnabled(True)
-                # self.seekbar.setEnabled(True)
-                # self.dehaze_button.setEnabled(True)
 
     def dehaze_video(self):
         if self.video_file:

@@ -1,55 +1,99 @@
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSpacerItem, QSizePolicy, QTabWidget
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSpacerItem, QSizePolicy
+from PyQt5.QtGui import QIcon, QFont, QPalette, QColor
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 
 class NavBar(QWidget):
-    def __init__(self, parent):
+    tab_changed = pyqtSignal(int)
+
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
-        self.setFixedHeight(64)
+        self.setFixedHeight(70) 
 
-        # Create main layout
+
+        self.setAutoFillBackground(True)
+        palette = self.palette()
+        palette.setColor(QPalette.Window, QColor("#ffffff"))
+        self.setPalette(palette)
+
         layout = QHBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)  # Reduced margins to 10
+        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setSpacing(15)
 
-        # Create logo label
         logo = QLabel("SeeThrough")
-        logo.setStyleSheet("font-family: Montserrat; font-size: 20px; font-weight: bold; color: #333;")
+        logo_font = QFont("Arial", 18, QFont.Bold)
+        logo.setFont(logo_font)
+        logo.setStyleSheet("color: #333333;")
         layout.addWidget(logo)
 
-        # Add left spacer
-        left_spacer = QSpacerItem(0, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
-        layout.addItem(left_spacer)
+        layout.addStretch(1)
 
-        # Create tabs
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setFixedSize(400, 40)  # Set a fixed size for the QTabWidget
+        self.nav_buttons = []
+        nav_items = ["Realtime Dehazing", "Image Dehazing", "Video Dehazing"]
+        for index, item in enumerate(nav_items):
+            button = QPushButton(item)
+            button.setCheckable(True)
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+            button.setFont(QFont("Arial", 11))
+            button.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    border: 1px solid #cccccc;
+                    color: #555555;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #f0f0f0;
+                }
+                QPushButton:checked {
+                    background-color: #e1f5fe;
+                    color: #0288d1;
+                    font-weight: bold;
+                    border-color: #0288d1;
+                }
+            """)
+            button.clicked.connect(lambda checked, idx=index: self.tab_changed.emit(idx))
+            self.nav_buttons.append(button)
+            layout.addWidget(button)
 
-        self.tab_widget.setStyleSheet(
-            """
-            QTabWidget::pane { border: none; background-color: #f7f7f7; }
-            QTabBar::tab { background-color: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 10px 20px; font-size: 11px; }
-            QTabBar::tab:hover { background-color: #f2f2f2; }
-            QTabBar::tab:selected { background-color: #007ACC; color: #fff; }
-            """
-        )
-        self.realtime_tab = QWidget()
-        self.static_tab = QWidget()
-        self.video_tab = QWidget()
-        self.tab_widget.addTab(self.realtime_tab, "Realtime Dehazing")
-        self.tab_widget.addTab(self.static_tab, "Image Dehazing")
-        self.tab_widget.addTab(self.video_tab, "Video Dehazing")
-        layout.addWidget(self.tab_widget)
+      
+        self.nav_buttons[0].setChecked(True)
 
-        # Add right spacer
-        right_spacer = QSpacerItem(0, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
-        layout.addItem(right_spacer)
+        layout.addStretch(1)
 
-        # Create exit button
         self.exit_button = QPushButton()
         self.exit_button.setIcon(QIcon("assets/exit.svg"))
-        self.exit_button.setIconSize(QSize(32, 32))
-        self.exit_button.setStyleSheet("background-color: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 5px;")
+        self.exit_button.setIconSize(QSize(24, 24))
+        self.exit_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.exit_button.setFixedSize(40, 40)
+        self.exit_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 20px;
+            }
+            QPushButton:hover {
+                background-color: #ffebee;
+            }
+            QPushButton:pressed {
+                background-color: #ffcdd2;
+            }
+        """)
         layout.addWidget(self.exit_button)
 
         self.setLayout(layout)
+
+    def set_active_tab(self, index):
+        for i, button in enumerate(self.nav_buttons):
+            button.setChecked(i == index)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.adjustButtonsSize()
+
+    def adjustButtonsSize(self):
+        available_width = self.width() - 400  
+        button_width = max(120, available_width // 3)  
+        for button in self.nav_buttons:
+            button.setFixedWidth(button_width)

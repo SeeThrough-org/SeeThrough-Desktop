@@ -4,12 +4,11 @@ import time
 import numpy as np
 from dehazing.dehazing import *
 from PyQt5.QtCore import pyqtSignal, QThread, QObject, pyqtSlot
-import logging
 import psutil
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import deque
-import functools
-
+from functools import partial
+from queue import Queue
 class CameraStream(QThread):
     frame_processed = pyqtSignal(np.ndarray, float)
     stop_stream = pyqtSignal()
@@ -20,51 +19,58 @@ class CameraStream(QThread):
         self.status = True
         self.frame_count = 0
         self.start_time = time.perf_counter()
-        self.logger = self.setup_logger()
         self.stop_thread = False
         self.capture = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
         if not self.capture.isOpened():
             self.status = False
-            self.logger.error(f"Error: Unable to open video capture from {self.url}")
+            print(f"Error: Unable to open video capture from {self.url}")
         self.executor = ThreadPoolExecutor(max_workers=psutil.cpu_count(logical=False))
         self.stop_stream.connect(self.stop_update)
-
-    def setup_logger(self):
-        logger = logging.getLogger("CameraStreamLogger")
-        logger.setLevel(logging.ERROR)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.ERROR)
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
-        return logger
+        self.processing_futures = set()
 
     def run(self):
-        while not self.stop_thread:
-            if self.capture.isOpened():
-                ret, frame = self.capture.read()
-                if ret:
-                    process_and_emit_frame_partial = functools.partial(self.process_and_emit_frame, frame)
-                    self.executor.submit(process_and_emit_frame_partial)
-                else:
-                    self.status = False
-                    self.stop_thread = True
-            else:
-                self.stop_thread = True
-        self.capture.release()
+        try:
+            while not self.stop_thread:
+                if self.capture.isOpened():
+                    ret, frame = self.capture.read()
+                    if ret:
+                        if len(self.processing_futures) < psutil.cpu_count(logical=False):
+                            process_frame_partial = partial(self.process_frame, frame)
+                            future = self.executor.submit(process_frame_partial)
+                            self.processing_futures.add(future)
+                    else:
+                        self.status = False
+                        break
 
-    def process_and_emit_frame(self, frame):
+                done_futures = {f for f in self.processing_futures if f.done()}
+                self.processing_futures -= done_futures
+
+                for future in done_futures:
+                    try:
+                        future.result()  
+                    except Exception as e:
+                        print(f"Error processing frame: {e}")
+
+                time.sleep(0.01)
+
+        finally:
+            self.stop_thread = True
+            for future in self.processing_futures:
+                future.cancel()
+            self.executor.shutdown(wait=True)
+            self.capture.release()
+
+    def process_frame(self, frame):
         try:
             dehazing_instance = DehazingCPU()
             self.img = frame
-            frame = dehazing_instance.image_processing(frame)
-            self.frame = frame
+            self.processed_frame = dehazing_instance.image_processing(frame)
             self.frame_count += 1
             elapsed_time = time.perf_counter() - self.start_time
             fps = self.frame_count / elapsed_time
-            self.frame_processed.emit(frame, fps)
+            self.frame_processed.emit(self.processed_frame, fps)
         except Exception as e:
-            self.logger.error(f"Error processing frame: {e}")
+            print(f"Error processing frame: {e}")
 
     @pyqtSlot()
     def stop_update(self):
@@ -73,7 +79,6 @@ class CameraStream(QThread):
     def stop(self):
         self.stop_thread = True
         self.stop_stream.emit()
-
 
 class VideoProcessor(QObject):
     update_progress_signal = pyqtSignal(int)

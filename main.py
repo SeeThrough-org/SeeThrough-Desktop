@@ -56,7 +56,6 @@ class GUI(QMainWindow):
 
         # Create a stacked widget to manage frames
         self.stacked_widget = QStackedWidget()
-        self.setCentralWidget(self.stacked_widget)
 
         # Create navbar
         self.navbar = NavBar(self)
@@ -78,16 +77,17 @@ class GUI(QMainWindow):
         self.stacked_widget.addWidget(self.static_frame)
         self.stacked_widget.addWidget(self.video_frame)
 
-        self.navbar.tab_widget.currentChanged.connect(self.switch_frame)
+        # Connect signals
+        self.navbar.tab_changed.connect(self.switch_frame)
         self.navbar.exit_button.clicked.connect(self.confirm_exit)
 
-        self.active_button = None  
         self.processed_image = None
         self.image_path = None
         self.camera_stream = None
 
     def switch_frame(self, index):
         self.stacked_widget.setCurrentIndex(index)
+        self.navbar.set_active_tab(index)
 
     def confirm_exit(self):
         reply = QMessageBox.question(

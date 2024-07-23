@@ -2,16 +2,21 @@ import cv2
 import numpy as np
 import cv2
 from scipy.ndimage import gaussian_filter
-
-
+from PyQt5.QtCore import pyqtSignal
 class DehazingCPU(object):
+    def __init__(self, progress_callback=None):
+        self.progress_callback = progress_callback
+
+    def report_progress(self, progress):
+        if self.progress_callback:
+            self.progress_callback(progress)
+
     def DarkChannel(self, im, sz):
         b, g, r = cv2.split(im)
         dc = np.min(np.stack([r, g, b]), axis=0)
-
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (sz, sz))
         dark = cv2.erode(dc, kernel)
-
+        self.report_progress(20)
         return dark
 
     def EstimateA(self, img, darkChannel):
@@ -24,34 +29,41 @@ class DehazingCPU(object):
         coords = np.column_stack(np.unravel_index(index, (h, w)))
 
         A = np.mean(img[coords[:, 0], coords[:, 1], :], axis=0, keepdims=True)
+        self.report_progress(40)
         return A
-    
+
     def TransmissionEstimate(self, im, A, sz):
         omega = 0.90
         im3 = im / A[0, :]
 
         transmission = 1 - omega * self.DarkChannel(im3, sz)
+        self.report_progress(60)
         return transmission
 
     def GaussianTransmissionRefine(self, et, sigma=2):
-        return gaussian_filter(et, sigma=sigma)
+        refined = gaussian_filter(et, sigma=sigma)
+        self.report_progress(80)
+        return refined
 
     def Recover(self, im, t, A, tx=0.1):
         t = np.maximum(t, tx)
-        t_broadcasted = np.expand_dims(t, axis=-1)  
+        t_broadcasted = np.expand_dims(t, axis=-1)
         res = (im - A) / t_broadcasted + A
+        self.report_progress(95)
         return res
 
-
     def image_processing(self, frame):
+        self.report_progress(0)
         I = frame.astype('float64') / 255
+        self.report_progress(10)
         dark = self.DarkChannel(I, 15)
         A = self.EstimateA(I, dark)
         te = self.TransmissionEstimate(I, A, 3)
         t = self.GaussianTransmissionRefine(te)
         J = self.Recover(I, t, A, 0.1)
-
+        self.report_progress(100)
         return J
+
 
 
 # class DehazingCuda(object):
@@ -186,3 +198,68 @@ class DehazingCPU(object):
 #             self.TransmissionEstimate(image_float, A, 2))
 #         frame = self.Recover(image_float, TE, A)
 #         return frame
+
+
+# class DehazingCPU(object):
+#     def DarkChannel(self, im, sz):
+#         b, g, r = cv2.split(im)
+#         dc = np.min(np.stack([r, g, b]), axis=0)
+
+#         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (sz, sz))
+#         dark = cv2.erode(dc, kernel)
+
+#         return dark
+
+#     def EstimateA(self, img, darkChannel):
+#         h, w, _ = img.shape
+#         length = h * w
+#         num = max(int(length * 0.0001), 1)
+
+#         darkChannVec = darkChannel.reshape(length)
+#         index = np.argpartition(darkChannVec, -num)[-num:]
+#         coords = np.column_stack(np.unravel_index(index, (h, w)))
+
+#         A = np.mean(img[coords[:, 0], coords[:, 1], :], axis=0, keepdims=True)
+#         return A
+    
+#     def TransmissionEstimate(self, im, A, sz):
+#         omega = 0.90
+#         im3 = im / A[0, :]
+
+#         transmission = 1 - omega * self.DarkChannel(im3, sz)
+#         return transmission
+
+#     def GaussianTransmissionRefine(self, et, sigma=2):
+#         return gaussian_filter(et, sigma=sigma)
+
+#     def Recover(self, im, t, A, tx=0.1):
+#         t = np.maximum(t, tx)
+#         t_broadcasted = np.expand_dims(t, axis=-1)
+#         res = (im - A) / t_broadcasted + A
+#         res = np.clip(res, 0, 1)
+        
+#         # Convert to 8-bit for color correction
+#         res_8bit = (res * 255).astype(np.uint8)
+        
+#         # # Apply CLAHE
+#         lab = cv2.cvtColor(res_8bit, cv2.COLOR_RGB2LAB)
+#         l, a, b = cv2.split(lab)
+#         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+#         cl = clahe.apply(l)
+#         limg = cv2.merge((cl, a, b))
+#         clahe_img = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+
+        
+#         return clahe_img.astype('float64') / 255
+
+
+#     def image_processing(self, frame):
+#         I = frame.astype('float64') / 255
+#         dark = self.DarkChannel(I, 15)
+#         A = self.EstimateA(I, dark)
+#         te = self.TransmissionEstimate(I, A, 3)
+#         t = self.GaussianTransmissionRefine(te)
+#         J = self.Recover(I, t, A, 0.1)
+
+
+#         return J
